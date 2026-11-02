@@ -52,7 +52,7 @@ Get `mozc-emacs-standalone-<version>-win-x64.zip` from [Releases](https://github
 |:---|:---|
 | `mozc_emacs_helper.exe` | The helper with the Mozc engine and dictionary inside |
 | `mozc.el` | Mozc's official `mozc.el` of the same version |
-| `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)). Not in the v0.0.2 zip; get it from this repository |
+| `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)). Included since v0.0.3 |
 | `LICENSES\` | License texts of what the exe contains. Keep them with the exe when you pass it on |
 | `README.md` / `README.ja.md` | This document |
 
