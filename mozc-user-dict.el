@@ -328,9 +328,28 @@ Microsoft IME の「テキストファイルで出力」の形式（UTF-16、! �
     map)
   "一覧のキー。")
 
+(defconst mozc-user-dict--legend "a 登録 / d 削除 / i 取り込み / g 再読込 / q 閉じる"
+  "一覧の下に出すキーの凡例。")
+
+(defun mozc-user-dict--print-with-legend (orig &rest args)
+  "`tabulated-list-print' の前後で、一覧の下のキーの凡例を外して付け直す。
+再読込・並べ替え・登録や削除後の更新のどれで描き直しても凡例が残るようにする。"
+  (if (not (derived-mode-p 'mozc-user-dict-list-mode))
+      (apply orig args)
+    (let ((inhibit-read-only t))
+      (let ((start (text-property-any (point-min) (point-max) 'mozc-user-dict-legend t)))
+        (when start (delete-region start (point-max))))
+      (prog1 (apply orig args)
+        (save-excursion
+          (goto-char (point-max))
+          (insert (propertize (concat "\n" mozc-user-dict--legend "\n")
+                              'face 'shadow 'mozc-user-dict-legend t)))))))
+
+(advice-add 'tabulated-list-print :around #'mozc-user-dict--print-with-legend)
+
 (define-derived-mode mozc-user-dict-list-mode tabulated-list-mode "Mozc-Dict"
   "Mozc のユーザー辞書の一覧。
-\\<mozc-user-dict-list-mode-map>\\[mozc-user-dict-add] 登録 / \\[mozc-user-dict-list-delete] 削除 / \\[mozc-user-dict-import] 取り込み / g 再読込"
+\\<mozc-user-dict-list-mode-map>\\[mozc-user-dict-add] 登録 / \\[mozc-user-dict-list-delete] 削除 / \\[mozc-user-dict-import] 取り込み / g 再読込 / q 閉じる"
   (setq tabulated-list-format [("よみ" 16 t) ("単語" 20 t) ("品詞" 12 t)
                                ("辞書" 10 t) ("コメント" 0 nil)])
   (setq tabulated-list-sort-key '("よみ" . nil))
