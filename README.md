@@ -168,7 +168,7 @@ helper で手を入れているのは次の 2 点です。
 
 このリポジトリのファイルは BSD 3-Clause です（[LICENSE](LICENSE)）。
 `emacs_standalone/mozc_emacs_helper_standalone.cc` と `patches/` は Mozc を元にしており、
-Mozc の著作権表示（Google Inc.、BSD 3-Clause）も `LICENSE` に含めています。
+Mozc の著作権表示（Google Inc.、BSD 3-Clause）は [LICENSE.mozc](LICENSE.mozc) にあります。
 
 ビルドした `mozc_emacs_helper.exe` には次のものが含まれます。ライセンス文は
 `build.ps1` が `-OutDir` の `LICENSES\` に書き出します。
