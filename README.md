@@ -17,6 +17,7 @@ linked in, using only the gcc of [w64devkit](https://github.com/skeeto/w64devkit
 - No IME to install and no conversion server (`mozc_server`)
 - Emacs uses Mozc's official `mozc.el` as is, in GUI and in `-nw`
 - No Bazel and no MSVC
+- A user dictionary editor in pure Emacs Lisp (`mozc-user-dict.el`) instead of Mozc's GUI dictionary tool
 
 This repository contains only the build script, patches and extra sources; the build fetches
 Mozc and its dictionary from their upstream sources. A prebuilt zip is available from
@@ -51,6 +52,7 @@ Get `mozc-emacs-standalone-<version>-win-x64.zip` from [Releases](https://github
 |:---|:---|
 | `mozc_emacs_helper.exe` | The helper with the Mozc engine and dictionary inside |
 | `mozc.el` | Mozc's official `mozc.el` of the same version |
+| `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)). Not in the v0.0.2 zip; get it from this repository |
 | `LICENSES\` | License texts of what the exe contains. Keep them with the exe when you pass it on |
 | `README.md` / `README.ja.md` | This document |
 
@@ -84,6 +86,7 @@ including abseil and protobuf.
 |:---|:---|
 | `mozc_emacs_helper.exe` | The helper with the engine and dictionary inside. Depends only on Windows system DLLs |
 | `mozc.el` | Mozc's official `src/unix/emacs/mozc.el` of the same version, with only `-*- lexical-binding: nil -*-` added to the first line (silences Emacs 31's `Missing lexical-binding cookie` warning; behavior is unchanged) |
+| `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)) |
 | `LICENSES\` | License texts of what the exe contains. Pass them along with the exe |
 
 Keep the work directory (default `%TEMP%\mozc-build`) and later builds are incremental. You can
@@ -100,6 +103,7 @@ Point Emacs to where you put `mozc.el` and `mozc_emacs_helper.exe` (`~/.emacs.d/
 (setq mozc-helper-program-name
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
+(require 'mozc-user-dict)   ; optional: edit the user dictionary
 ```
 
 `C-\` toggles it. While converting: Space converts and cycles candidates, Enter commits, F7 gives
@@ -130,6 +134,29 @@ katakana, and Right moves to the next segment. Dates (`kyou`), postal codes, cal
                       (toggle-input-method))))))
   ```
 
+### User dictionary
+
+Mozc's dictionary tool is a separate Qt GUI that this kit does not build. Instead,
+`mozc-user-dict.el` reads and writes the user dictionary
+(`%USERPROFILE%\AppData\LocalLow\Mozc\user_dictionary.db`) in pure Emacs Lisp, then restarts the
+helper so that it reloads the dictionary (`mozc.el` notices the restart and recreates its sessions).
+
+| Command | Action |
+|:---|:---|
+| `M-x mozc-user-dict-add` | Asks for the word, reading, part of speech and comment, and registers it (the active region becomes the default word) |
+| `M-x mozc-user-dict-list` | Lists the words. `a` add / `d` delete / `i` import / `g` refresh / `q` quit |
+| `M-x mozc-user-dict-import` | Imports a text dictionary (below) |
+
+- Words go to a dictionary named `Emacs` (created if missing; change `mozc-user-dict-name`).
+  Words in other dictionaries can be listed and deleted too
+- The part of speech is one of Mozc's 45 kinds, chosen with completion (default 名詞, noun).
+  You can turn Mozc on with `C-\` while typing the reading
+- Imports take one word per line, `reading<TAB>word<TAB>part of speech<TAB>comment` (the last two
+  are optional). Files exported by Microsoft IME as text (UTF-16, lines starting with `!`) work as
+  they are. Parts of speech Mozc does not have become nouns
+- The file is the protobuf message as is. Fields this code does not know are written back
+  unchanged, so new fields in later Mozc versions survive
+
 ### Check
 
 Converts the reading kanji and commits it. You are fine if the last line has `(result ...)`.
@@ -147,6 +174,7 @@ Converts the reading kanji and commits it. You are fine if the last line has `(r
 | `patches/` | Patches to Mozc for MinGW gcc (`__try`/`__except` and opening files) |
 | `emacs_standalone/` | A package added to the Mozc tree: the engine-embedded helper, and replacements for code that needs ATL or aux_ulib, which MinGW lacks |
 | `compat/` | Stand-ins for headers MinGW lacks (`atlbase.h`, `aux_ulib.h`) |
+| `mozc-user-dict.el` | Edits the user dictionary from Emacs (`build.ps1` copies it to `-OutDir`) |
 
 The helper adds two things to the official one:
 

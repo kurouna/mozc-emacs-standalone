@@ -18,6 +18,7 @@ Windows の GNU Emacs で、[Mozc](https://github.com/google/mozc) を `C-\` の
 - IME のインストールも、変換サーバー (`mozc_server`) も要りません
 - Emacs 側は Mozc 公式の `mozc.el` をそのまま使います（GUI でも `-nw` でも同じ）
 - Bazel も MSVC も使いません
+- Mozc 公式の辞書ツール（GUI）の代わりに、Emacs Lisp だけで書いたユーザー辞書の編集機能（`mozc-user-dict.el`）があります
 
 このリポジトリにあるのはビルドスクリプト・パッチ・追加ソースだけで、Mozc 本体と辞書は
 ビルド時に各配布元から取得します。ビルド済みの zip は [Releases](https://github.com/kurouna/mozc-emacs-standalone/releases) から入手できます。
@@ -51,6 +52,7 @@ S 式）は公式と同じなので、Emacs 側は公式の `mozc.el` がその�
 |:---|:---|
 | `mozc_emacs_helper.exe` | Mozc の変換エンジンと辞書を内蔵した helper |
 | `mozc.el` | 同じ版の Mozc 公式 `mozc.el` |
+| `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（[下記](#ユーザー辞書)）。v0.0.2 の zip には入っていないので、このリポジトリから入手してください |
 | `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
 | `README.md` / `README.ja.md` | この説明 |
 
@@ -84,6 +86,7 @@ cd mozc-emacs-standalone
 |:---|:---|
 | `mozc_emacs_helper.exe` | エンジンと辞書を内蔵した helper。Windows 標準の DLL にしか依存しない |
 | `mozc.el` | 同じ版の Mozc 公式 `src/unix/emacs/mozc.el`。1 行目に `-*- lexical-binding: nil -*-` だけ足してある（Emacs 31 の `Missing lexical-binding cookie` 警告対策。動作は変わらない） |
+| `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（[下記](#ユーザー辞書)） |
 | `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
 
 作業ディレクトリ（既定は `%TEMP%\mozc-build`）を残しておけば、2 回目以降は
@@ -102,6 +105,7 @@ exe は `mozc_emacs_helper.exe.old` に退避して差し替えます（Emacs �
 (setq mozc-helper-program-name
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
+(require 'mozc-user-dict)   ; 任意: ユーザー辞書の編集
 ```
 
 これで `C-\` で ON/OFF できます。変換中はスペースで変換・候補送り、Enter で確定、
@@ -132,6 +136,28 @@ F7 でカタカナ、→ で次の文節です。日付（「きょう」）・�
                       (toggle-input-method))))))
   ```
 
+### ユーザー辞書
+
+Mozc 公式の辞書ツールは Qt で作られた別の GUI アプリで、このキットではビルドしません。
+代わりに `mozc-user-dict.el` が、ユーザー辞書（`%USERPROFILE%\AppData\LocalLow\Mozc\user_dictionary.db`）
+を Emacs Lisp だけで読み書きし、書き換えたら helper を再起動して読み直させます
+（mozc.el は再起動を検知してセッションを作り直します）。
+
+| コマンド | 動作 |
+|:---|:---|
+| `M-x mozc-user-dict-add` | 単語・よみ・品詞・コメントを聞いて登録（範囲選択中ならその文字列を単語の既定値に） |
+| `M-x mozc-user-dict-list` | 一覧。`a` 登録 / `d` 削除 / `i` 取り込み / `g` 再読込 / `q` 閉じる |
+| `M-x mozc-user-dict-import` | テキスト辞書を取り込む（下記） |
+
+- 登録先は `Emacs` という名前の辞書です（無ければ作ります。`mozc-user-dict-name` で変更可）。
+  ほかの辞書の単語も一覧・削除できます
+- 品詞は Mozc と同じ 45 種類から補完で選びます（既定は名詞）。よみの入力中も `C-\` で Mozc を使えます
+- 取り込めるのは 1 行 1 語の「よみ<TAB>単語<TAB>品詞<TAB>コメント」形式です（品詞とコメントは省略可）。
+  Microsoft IME で「テキストファイルで出力」したもの（UTF-16、`!` で始まる行）もそのまま読めます。
+  Mozc に無い品詞は名詞にします
+- 辞書ファイルは protobuf をそのまま書いたもので、知らない項目も読んだまま書き戻すので、
+  Mozc の版が上がって項目が増えても壊しません
+
 ### 動作確認
 
 helper 単体で、「かんじ」を変換・確定できるかを確かめられます。最後の行に
@@ -150,6 +176,7 @@ helper 単体で、「かんじ」を変換・確定できるかを確かめら�
 | `patches/` | MinGW の gcc で通すための Mozc へのパッチ（`__try`/`__except` と、ファイルを開く処理） |
 | `emacs_standalone/` | Mozc のソースツリーに足すパッケージ。エンジン内蔵の helper 本体と、MinGW に無い ATL / aux_ulib を使う部分の代替実装 |
 | `compat/` | MinGW に無いヘッダの代わり（`atlbase.h` / `aux_ulib.h`） |
+| `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（`build.ps1` が `-OutDir` にコピーする） |
 
 helper で手を入れているのは次の 2 点です。
 
