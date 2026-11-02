@@ -119,6 +119,13 @@ exe は `mozc_emacs_helper.exe.old` に退避して差し替えます（Emacs �
 F7 でカタカナ、→ で次の文節です。日付（「きょう」）・郵便番号・計算（`12*3+4=`）・
 絵文字なども Mozc と同じように変換できます。
 
+`mozc.el` も helper も GUI に依存しないので、ターミナル（`emacs -nw`）でも同じように使えます。
+候補一覧もバッファ上に表示されます。
+
+<p align="center">
+  <img src="./docs/terminal-nw.png" width="560" alt="Windows Terminal の PowerShell で emacs -nw を起動し、「きしゃのきしゃがきしゃできしゃした」を変換している画面。選択中の文節の候補一覧がバッファ上に表示され、モードラインに [あ] が出ている">
+</p>
+
 - 学習結果は `%USERPROFILE%\AppData\LocalLow\Mozc\` に保存されます。消せば学習前に戻ります
 - 絵文字が `01F431` のような 16 進の箱で出る場合は、絵文字用のフォントを指定します
 

@@ -117,6 +117,13 @@ Point Emacs to where you put `mozc.el` and `mozc_emacs_helper.exe` (`~/.emacs.d/
 katakana, and Right moves to the next segment. Dates (`kyou`), postal codes, calculations
 (`12*3+4=`) and emoji convert as in Mozc.
 
+It works the same in a terminal (`emacs -nw`), since `mozc.el` and the helper do not depend on
+the GUI; the candidate list is drawn in the buffer there too.
+
+<p align="center">
+  <img src="./docs/terminal-nw.png" width="560" alt="emacs -nw running in PowerShell in Windows Terminal: converting kisha no kisha ga kisha de kisha shita with the candidate list of the focused segment drawn in the buffer, and [あ] in the mode line">
+</p>
+
 - Learning is stored in `%USERPROFILE%\AppData\LocalLow\Mozc\`; delete it to start over
 - If emoji appear as hex boxes such as `01F431`, set an emoji font
 
