@@ -1,0 +1,2 @@
+# build.ps1 の出力（exe・mozc.el・ライセンス文）。Mozc 本体と辞書は配布しない
+/dist/
