@@ -1,7 +1,7 @@
 # Copyright 2026, elecxzy project
 # Use of this source code is governed by the BSD 3-Clause license in LICENSE.
 
-load("//:build_defs.bzl", "mozc_cc_binary", "mozc_cc_library")
+load("//:build_defs.bzl", "mozc_cc_binary", "mozc_cc_library", "mozc_select")
 
 mozc_cc_library(
     name = "helper_lib",
@@ -22,7 +22,9 @@ mozc_cc_binary(
     srcs = ["mozc_emacs_helper_standalone.cc"],
     deps = [
         ":helper_lib",
+        "//base:file_util",
         "//base:init_mozc",
+        "//base:system_util",
         "//base:version",
         "//config:config_handler",
         "//engine:engine_factory",
@@ -30,5 +32,7 @@ mozc_cc_binary(
         "//session:session_handler",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/flags:flag",
-    ],
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/status",
+    ] + mozc_select(windows = ["//base/win32:wide_char"]),
 )

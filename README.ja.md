@@ -127,6 +127,18 @@ F7 でカタカナ、→ で次の文節です。日付（「きょう」）・�
 </p>
 
 - 学習結果は `%USERPROFILE%\AppData\LocalLow\Mozc\` に保存されます。消せば学習前に戻ります
+- 学習・ユーザー辞書・設定を別の場所に置くには（USB メモリの exe の隣に置く、別のアプリの
+  helper と分けるなど）`--profile_dir` に絶対パスを渡します。ディレクトリが無ければ作ります
+  （親はあらかじめ必要です）。`mozc-user-dict.el` もこれに従います。パスに ASCII 以外の文字が
+  あり、Emacs が UTF-8 を優先する設定（`(prefer-coding-system 'utf-8)` など）だと、helper に渡る
+  途中で Windows がパスを化かすので、そのときは ASCII のパスにしてください
+
+  ```elisp
+  (setq mozc-helper-program-args
+        (list "--suppress_stderr"
+              (concat "--profile_dir=" (expand-file-name "mozc/profile" user-emacs-directory))))
+  ```
+
 - 絵文字が `01F431` のような 16 進の箱で出る場合は、絵文字用のフォントを指定します
 
   ```elisp

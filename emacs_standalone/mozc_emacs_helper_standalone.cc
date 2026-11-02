@@ -43,10 +43,17 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
+#include "absl/flags/internal/parse.h"
+#include "absl/status/status.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "base/file_util.h"
 #include "base/init_mozc.h"
+#include "base/system_util.h"
 #include "base/version.h"
 #include "config/config_handler.h"
 #include "engine/engine_factory.h"
@@ -57,9 +64,19 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+// clang-format off
+#include <windows.h>
+#include <shellapi.h>  // for CommandLineToArgvW
+// clang-format on
+
+#include "base/win32/wide_char.h"
 #endif  // _WIN32
 
 ABSL_FLAG(bool, suppress_stderr, false, "Discards all the output to stderr.");
+ABSL_FLAG(std::string, profile_dir, "",
+          "Directory for the learning data, the user dictionary and the "
+          "config, instead of %USERPROFILE%\\AppData\\LocalLow\\Mozc. "
+          "Must be an absolute path; created if missing.");
 
 namespace mozc::emacs {
 namespace {
@@ -82,6 +99,20 @@ void PrintGreetingMessage() {
                 "(config . ((preedit-method . %s))))\n",
                 QuoteString(Version::GetMozcVersion()), preedit_method);
   fflush(stdout);
+}
+
+// "C:\..." or "\\server\...".  A relative path would be resolved against
+// whatever directory Emacs started the helper in, which mozc-user-dict.el
+// cannot know.
+bool IsAbsolutePath(absl::string_view path) {
+#ifdef _WIN32
+  auto is_sep = [](char c) { return c == '\\' || c == '/'; };
+  return (path.size() >= 3 && absl::ascii_isalpha(path[0]) && path[1] == ':' &&
+          is_sep(path[2])) ||
+         (path.size() >= 2 && is_sep(path[0]) && is_sep(path[1]));
+#else   // _WIN32
+  return absl::StartsWith(path, "/");
+#endif  // _WIN32
 }
 
 void ProcessLoop(SessionHandler& handler) {
@@ -159,8 +190,28 @@ void ProcessLoop(SessionHandler& handler) {
 }  // namespace mozc::emacs
 
 int main(int argc, char** argv) {
-  mozc::InitMozc(argv[0], &argc, &argv);
 #ifdef _WIN32
+  // The CRT decodes argv in the ANSI code page, while Mozc takes paths in
+  // UTF-8.  Take the arguments from the wide command line instead, as
+  // WinCommandLine in base/win32/winmain.h does (which needs WinMain).
+  std::vector<std::string> args;
+  if (int wargc = 0; wchar_t** wargv =
+                         ::CommandLineToArgvW(::GetCommandLineW(), &wargc)) {
+    for (int i = 0; i < wargc; ++i) {
+      args.push_back(mozc::win32::WideToUtf8(wargv[i]));
+    }
+    ::LocalFree(wargv);
+  }
+  std::vector<char*> utf8_argv;
+  for (std::string& arg : args) {
+    utf8_argv.push_back(arg.data());
+  }
+  utf8_argv.push_back(nullptr);
+  if (!args.empty()) {
+    argc = static_cast<int>(args.size());
+    argv = utf8_argv.data();
+  }
+
   // Emacs talks UTF-8 over pipes; avoid CRLF translation.
   _setmode(_fileno(stdin), _O_BINARY);
   _setmode(_fileno(stdout), _O_BINARY);
@@ -168,6 +219,28 @@ int main(int argc, char** argv) {
 #else   // _WIN32
   constexpr char kNullDevice[] = "/dev/null";
 #endif  // _WIN32
+
+  // InitMozc resolves the profile directory (creating the default one) to
+  // place its log file, so set the directory before it.  The flags are parsed
+  // as InitMozc parses them, which it then does again.
+  absl::flags_internal::ParseCommandLineImpl(
+      argc, argv, absl::flags_internal::UsageFlagsAction::kIgnoreUsage,
+      absl::flags_internal::OnUndefinedFlag::kIgnoreUndefined);
+  if (const std::string dir = absl::GetFlag(FLAGS_profile_dir); !dir.empty()) {
+    if (!mozc::emacs::IsAbsolutePath(dir)) {
+      mozc::emacs::ErrorExit(
+          mozc::emacs::kErrFileError,
+          absl::StrCat("The profile directory must be an absolute path: ", dir));
+    }
+    mozc::FileUtil::CreateDirectory(dir).IgnoreError();
+    if (!mozc::FileUtil::DirectoryExists(dir).ok()) {
+      mozc::emacs::ErrorExit(
+          mozc::emacs::kErrFileError,
+          absl::StrCat("Cannot create the profile directory: ", dir));
+    }
+    mozc::SystemUtil::SetUserProfileDirectory(dir);
+  }
+  mozc::InitMozc(argv[0], &argc, &argv);
   if (absl::GetFlag(FLAGS_suppress_stderr)) {
     if (!freopen(kNullDevice, "a", stderr)) {
       mozc::emacs::ErrorExit(mozc::emacs::kErrFileError,

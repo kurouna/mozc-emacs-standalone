@@ -125,6 +125,18 @@ the GUI; the candidate list is drawn in the buffer there too.
 </p>
 
 - Learning is stored in `%USERPROFILE%\AppData\LocalLow\Mozc\`; delete it to start over
+- To keep learning, the user dictionary and the config somewhere else (e.g. next to the exe on a
+  USB drive, or apart from another app's helper), pass `--profile_dir` with an absolute path. The
+  directory is created if missing, but its parent must exist. `mozc-user-dict.el` follows it. If
+  the path has non-ASCII characters and Emacs prefers UTF-8 (e.g. `(prefer-coding-system 'utf-8)`),
+  Windows garbles it on the way to the helper; use an ASCII path then
+
+  ```elisp
+  (setq mozc-helper-program-args
+        (list "--suppress_stderr"
+              (concat "--profile_dir=" (expand-file-name "mozc/profile" user-emacs-directory))))
+  ```
+
 - If emoji appear as hex boxes such as `01F431`, set an emoji font
 
   ```elisp

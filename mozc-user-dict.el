@@ -5,7 +5,8 @@
 
 ;;; Commentary:
 
-;; Mozc のユーザー辞書（%USERPROFILE%\AppData\LocalLow\Mozc\user_dictionary.db）を
+;; Mozc のユーザー辞書（%USERPROFILE%\AppData\LocalLow\Mozc\user_dictionary.db、
+;; helper に --profile_dir で DIR を渡していれば DIR\user_dictionary.db）を
 ;; Emacs Lisp だけで読み書きする。Mozc 公式の辞書ツール（Qt の GUI）の代わり。
 ;;
 ;;   M-x mozc-user-dict-add     単語を登録（範囲選択中ならその文字列を単語に）
@@ -30,11 +31,38 @@
   "Mozc のユーザー辞書の編集。"
   :group 'mozc)
 
-(defcustom mozc-user-dict-file
-  (expand-file-name "AppData/LocalLow/Mozc/user_dictionary.db"
-                    (or (getenv "USERPROFILE") "~"))
-  "Mozc のユーザー辞書ファイル。"
-  :type 'file)
+(defcustom mozc-user-dict-file nil
+  "Mozc のユーザー辞書ファイル。
+nil なら helper の学習先（`mozc-helper-program-args' の --profile_dir、
+無ければ %USERPROFILE%\\AppData\\LocalLow\\Mozc）の user_dictionary.db。"
+  :type '(choice (const :tag "helper の学習先" nil) file))
+
+(defun mozc-user-dict--profile-dir ()
+  "helper の引数（`mozc-helper-program-args'）の --profile_dir。無ければ nil。
+helper と同じく --profile_dir=DIR も --profile_dir DIR も受け、何度もあれば
+最後を使い、`--' より後は見ない。"
+  (let ((args (bound-and-true-p mozc-helper-program-args)) dir)
+    (while (and args (not (equal (car args) "--")))
+      (let ((arg (pop args)))
+        (when (and (stringp arg)
+                   (string-match "\\`--?profile_dir\\(?:=\\(.*\\)\\)?\\'" arg))
+          (setq dir (if (match-beginning 1) (match-string 1 arg) (pop args))))))
+    (when (and (stringp dir) (> (length dir) 0))
+      ;; helper と同じく絶対パスに限る（`file-name-absolute-p' は ~ も通すので使わない）
+      (unless (string-match-p (if (eq system-type 'windows-nt)
+                                  "\\`\\(?:[A-Za-z]:\\|[\\/]\\)[\\/]"
+                                "\\`/")
+                              dir)
+        (user-error "mozc-user-dict: --profile_dir は絶対パスで指定してください: %s" dir))
+      dir)))
+
+(defun mozc-user-dict--file ()
+  "ユーザー辞書ファイルの場所。"
+  (or mozc-user-dict-file
+      (expand-file-name "user_dictionary.db"
+                        (or (mozc-user-dict--profile-dir)
+                            (expand-file-name "AppData/LocalLow/Mozc"
+                                              (or (getenv "USERPROFILE") "~"))))))
 
 (defcustom mozc-user-dict-name "Emacs"
   "単語を登録する辞書の名前。無ければ作る。"
@@ -120,17 +148,18 @@
 
 (defun mozc-user-dict--read ()
   "辞書ファイルを読んでフィールドの並びを返す。無ければ空。"
-  (if (file-exists-p mozc-user-dict-file)
-      (with-temp-buffer
-        (set-buffer-multibyte nil)
-        (let ((coding-system-for-read 'no-conversion))
-          (insert-file-contents-literally mozc-user-dict-file))
-        (mozc-user-dict--decode (buffer-string)))
-    nil))
+  (let ((file (mozc-user-dict--file)))
+    (if (file-exists-p file)
+        (with-temp-buffer
+          (set-buffer-multibyte nil)
+          (let ((coding-system-for-read 'no-conversion))
+            (insert-file-contents-literally file))
+          (mozc-user-dict--decode (buffer-string)))
+      nil)))
 
 (defun mozc-user-dict--write (storage)
   "STORAGE を辞書ファイルに書き、helper に読み直させる。"
-  (let* ((file mozc-user-dict-file)
+  (let* ((file (mozc-user-dict--file))
          (tmp (concat file ".tmp"))
          (bytes (mozc-user-dict--encode storage)))
     (make-directory (file-name-directory file) t)
