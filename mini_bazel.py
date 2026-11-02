@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2026, Shinsaku Nakagawa
+# Copyright 2026, elecxzy project
 # Use of this source code is governed by the BSD 3-Clause license in LICENSE.
 """Tiny Bazel-subset evaluator for the Mozc tree.
 

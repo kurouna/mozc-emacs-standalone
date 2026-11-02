@@ -1,81 +1,83 @@
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![Zenn](https://img.shields.io/badge/Zenn-kurouna-blue)](https://zenn.dev/kurouna)
+[![X](https://img.shields.io/badge/X-elecxzy-black)](https://x.com/elecxzy)
+
+**English** | [日本語](README.ja.md)
+
 # mozc-emacs-standalone
 
-Windows の GNU Emacs で、[Mozc](https://github.com/google/mozc) を `C-\` の
-入力メソッドとして使うためのビルドキットです。Mozc の変換エンジンと辞書を
-内蔵した `mozc_emacs_helper.exe` を、[w64devkit](https://github.com/skeeto/w64devkit)
-の gcc だけでビルドします。
+A build kit for using [Mozc](https://github.com/google/mozc) as a `C-\` input method in GNU Emacs
+on Windows. It builds a `mozc_emacs_helper.exe` with the Mozc conversion engine and dictionary
+linked in, using only the gcc of [w64devkit](https://github.com/skeeto/w64devkit).
 
-A build kit for using Mozc as an Emacs input method on Windows. It builds a
-`mozc_emacs_helper.exe` with the Mozc engine and dictionary linked in, using
-only w64devkit's gcc (no Bazel, no MSVC). Emacs talks to it through the
-official `mozc.el`.
+<p align="center">
+  <img src="./docs/screenshot.png" width="560" alt="GUI Emacs converting Japanese with the bundled Mozc: the reading kisha is being converted and the candidate list is shown below">
+</p>
 
-- IME のインストールも、変換サーバー (`mozc_server`) も要りません
-- Emacs 側は Mozc 公式の `mozc.el` をそのまま使います（GUI でも `-nw` でも同じ）
-- Bazel も MSVC も使いません
+- No IME to install and no conversion server (`mozc_server`)
+- Emacs uses Mozc's official `mozc.el` as is, in GUI and in `-nw`
+- No Bazel and no MSVC
 
-このリポジトリにあるのはビルドスクリプト・パッチ・追加ソースだけです。
-Mozc 本体・辞書・ビルド済みの exe は含みません（ビルド時に各配布元から取得します）。
+This repository contains only the build script, patches and extra sources. It does not contain
+Mozc, its dictionary or a prebuilt exe; the build fetches them from their upstream sources.
 
-## 仕組み
+## How it works
 
-Mozc 公式の `mozc_emacs_helper` は、別プロセスの変換サーバーに IPC でつなぐ
-中継役です。Windows 向けには配布されていません。
+Mozc's official `mozc_emacs_helper` is a relay that talks to a separate conversion server over
+IPC, and it is not distributed for Windows.
 
 ```
-公式:   Emacs ─(S式)─ mozc_emacs_helper ─(IPC)─ mozc_server（エンジン＋辞書）
-これ:   Emacs ─(S式)─ mozc_emacs_helper.exe（エンジン＋辞書を内蔵）
+official:  Emacs ─(S-exp)─ mozc_emacs_helper ─(IPC)─ mozc_server (engine + dictionary)
+this:      Emacs ─(S-exp)─ mozc_emacs_helper.exe (engine + dictionary inside)
 ```
 
-ここでビルドする helper は、サーバーの中で動いている `SessionHandler` を
-自分の中に持ち、変換を自分で行います。`mozc.el` とのやり取り（標準入出力の
-S 式）は公式と同じなので、Emacs 側は公式の `mozc.el` がそのまま使えます。
+The helper built here holds the `SessionHandler` that normally runs inside the server and does
+the conversion itself. It speaks the same S-expression protocol over stdin/stdout as the official
+helper, so the official `mozc.el` works with it unchanged.
 
-| 項目 | 公式 `mozc_emacs_helper` | これ |
+| | Official `mozc_emacs_helper` | This |
 |:---|:---|:---|
-| 変換する場所 | `mozc_server`（別プロセス） | helper の中 |
-| 前提 | Mozc / Google 日本語入力のインストール | exe 1 つ（約 26MB） |
-| 辞書 | サーバー側のもの | Mozc のオープンソース版の辞書 |
-| 学習・ユーザー辞書 | サーバーと共有（他のアプリと共通） | helper 専用（`%USERPROFILE%\AppData\LocalLow\Mozc\`） |
+| Where conversion runs | `mozc_server` (separate process) | inside the helper |
+| Requires | Mozc / Google Japanese Input installed | one exe (about 26 MB) |
+| Dictionary | the server's | Mozc's open-source dictionary |
+| Learning and user dictionary | shared with the server (and other apps) | the helper's own (`%USERPROFILE%\AppData\LocalLow\Mozc\`) |
 
-## 必要なもの
+## Requirements
 
-- [w64devkit](https://github.com/skeeto/w64devkit/releases)（gcc / cmake / ninja / sh を含む）。
-  `w64devkit-x64-*.7z.exe` を展開するだけで使えます
+- [w64devkit](https://github.com/skeeto/w64devkit/releases) (includes gcc, cmake, ninja and sh);
+  just extract `w64devkit-x64-*.7z.exe`
 - git
-- Python 3（`PATH` 上の `python`）
-- インターネット接続（Mozc・abseil・protobuf・WIL・辞書の元データを取得します）
+- Python 3 (`python` on `PATH`)
+- An internet connection (to fetch Mozc, abseil, protobuf, WIL and the dictionary sources)
 
-## ビルド
+## Build
 
-PowerShell で実行します。
+Run in PowerShell.
 
 ```powershell
 git clone https://github.com/kurouna/mozc-emacs-standalone.git
 cd mozc-emacs-standalone
 .\build.ps1
-# w64devkit を別の場所に置いた場合 / 作業ディレクトリや出力先を変える場合
+# w64devkit elsewhere / another work directory or output directory
 .\build.ps1 -DevkitBin C:\w64devkit\bin -WorkDir D:\mozc-build -OutDir $env:APPDATA\.emacs.d\mozc
 ```
 
-`-OutDir`（既定は `.\dist`）に次のものができます。初回は abseil / protobuf の
-ビルドを含めて 10〜20 分ほどかかります。
+The following are written to `-OutDir` (default `.\dist`). The first build takes 10-20 minutes,
+including abseil and protobuf.
 
-| ファイル | 内容 |
+| File | Contents |
 |:---|:---|
-| `mozc_emacs_helper.exe` | エンジンと辞書を内蔵した helper。Windows 標準の DLL にしか依存しない |
-| `mozc.el` | 同じ版の Mozc 公式 `src/unix/emacs/mozc.el`。1 行目に `-*- lexical-binding: nil -*-` だけ足してある（Emacs 31 の `Missing lexical-binding cookie` 警告対策。動作は変わらない） |
-| `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
+| `mozc_emacs_helper.exe` | The helper with the engine and dictionary inside. Depends only on Windows system DLLs |
+| `mozc.el` | Mozc's official `src/unix/emacs/mozc.el` of the same version, with only `-*- lexical-binding: nil -*-` added to the first line (silences Emacs 31's `Missing lexical-binding cookie` warning; behavior is unchanged) |
+| `LICENSES\` | License texts of what the exe contains. Pass them along with the exe |
 
-作業ディレクトリ（既定は `%TEMP%\mozc-build`）を残しておけば、2 回目以降は
-差分だけをビルドします。Emacs が helper を使っている間も実行でき、使用中の
-exe は `mozc_emacs_helper.exe.old` に退避して差し替えます（Emacs を再起動すると
-新しい exe が使われます）。
+Keep the work directory (default `%TEMP%\mozc-build`) and later builds are incremental. You can
+build while Emacs is using the helper: the exe in use is moved to `mozc_emacs_helper.exe.old`
+and replaced, and Emacs picks up the new one after a restart.
 
-## Emacs で使う
+## Use from Emacs
 
-`mozc.el` と `mozc_emacs_helper.exe` を置いた場所（例では `~/.emacs.d/mozc/`）を
-指定します。
+Point Emacs to where you put `mozc.el` and `mozc_emacs_helper.exe` (`~/.emacs.d/mozc/` here).
 
 ```elisp
 (add-to-list 'load-path (expand-file-name "mozc" user-emacs-directory))
@@ -85,21 +87,21 @@ exe は `mozc_emacs_helper.exe.old` に退避して差し替えます（Emacs �
 (setq default-input-method "japanese-mozc")
 ```
 
-これで `C-\` で ON/OFF できます。変換中はスペースで変換・候補送り、Enter で確定、
-F7 でカタカナ、→ で次の文節です。日付（「きょう」）・郵便番号・計算（`12*3+4=`）・
-絵文字なども Mozc と同じように変換できます。
+`C-\` toggles it. While converting: Space converts and cycles candidates, Enter commits, F7 gives
+katakana, and Right moves to the next segment. Dates (`kyou`), postal codes, calculations
+(`12*3+4=`) and emoji convert as in Mozc.
 
-- 学習結果は `%USERPROFILE%\AppData\LocalLow\Mozc\` に保存されます。消せば学習前に戻ります
-- 絵文字が `01F431` のような 16 進の箱で出る場合は、絵文字用のフォントを指定します
+- Learning is stored in `%USERPROFILE%\AppData\LocalLow\Mozc\`; delete it to start over
+- If emoji appear as hex boxes such as `01F431`, set an emoji font
 
   ```elisp
   (set-fontset-font t 'emoji (font-spec :family "Segoe UI Emoji") nil 'prepend)
   ```
 
-- [tr-ime](https://github.com/trueroad/tr-emacs-ime-module) と併用する場合、
-  tr-ime の IME 状態の同期は「Windows の IME が閉じているのに入力メソッドが有効」
-  を食い違いとみなして Mozc を OFF にしてしまいます。Mozc を使う間は、半角/全角
-  キーで Windows の IME が開いたときに Mozc を切り替えるよう差し替えると併用できます
+- With [tr-ime](https://github.com/trueroad/tr-emacs-ime-module), its IME state sync treats
+  "the Windows IME is closed while an input method is active" as a mismatch and turns Mozc off.
+  While Mozc is used, replace the sync so that opening the Windows IME (e.g. with the
+  Hankaku/Zenkaku key) toggles Mozc instead
 
   ```elisp
   (with-eval-after-load 'tr-ime-sync
@@ -113,75 +115,93 @@ F7 でカタカナ、→ で次の文節です。日付（「きょう」）・�
                       (toggle-input-method))))))
   ```
 
-### 動作確認
+### Check
 
-helper 単体で、「かんじ」を変換・確定できるかを確かめられます。最後の行に
-`(result ...)` が出れば OK です。
+Converts the reading kanji and commits it. You are fine if the last line has `(result ...)`.
 
 ```powershell
 "(0 CreateSession)`n(1 SendKey 1 107)`n(2 SendKey 1 97)`n(3 SendKey 1 110)`n(4 SendKey 1 106)`n(5 SendKey 1 105)`n(6 SendKey 1 space)`n(7 SendKey 1 enter)" | .\dist\mozc_emacs_helper.exe --suppress_stderr
 ```
 
-## 中身
+## Contents
 
-| パス | 内容 |
+| Path | Contents |
 |:---|:---|
-| `build.ps1` | ビルドスクリプト。使う Mozc・abseil・protobuf・WIL・辞書の元データの版を先頭で固定している |
-| `mini_bazel.py` | Mozc の `BUILD.bazel` を評価して `build.ninja` を生成する。Bazel のうち Mozc のエンジンと辞書データの生成に要る部分だけを実装 |
-| `patches/` | MinGW の gcc で通すための Mozc へのパッチ（`__try`/`__except` と、ファイルを開く処理） |
-| `emacs_standalone/` | Mozc のソースツリーに足すパッケージ。エンジン内蔵の helper 本体と、MinGW に無い ATL / aux_ulib を使う部分の代替実装 |
-| `compat/` | MinGW に無いヘッダの代わり（`atlbase.h` / `aux_ulib.h`） |
+| `build.ps1` | The build script. Pins the versions of Mozc, abseil, protobuf, WIL and the dictionary sources at the top |
+| `mini_bazel.py` | Evaluates Mozc's `BUILD.bazel` files and writes `build.ninja`. Implements only the part of Bazel the engine and the dictionary generation need |
+| `patches/` | Patches to Mozc for MinGW gcc (`__try`/`__except` and opening files) |
+| `emacs_standalone/` | A package added to the Mozc tree: the engine-embedded helper, and replacements for code that needs ATL or aux_ulib, which MinGW lacks |
+| `compat/` | Stand-ins for headers MinGW lacks (`atlbase.h`, `aux_ulib.h`) |
 
-helper で手を入れているのは次の 2 点です。
+The helper adds two things to the official one:
 
-- `mozc.el` とのやり取りはセッション ID が 32 ビット、エンジン内部は 64 ビットなので、
-  公式 helper と同じく対応表を持たせています
-- Windows 版の Mozc はセッションを IME OFF の状態で始めます。`mozc.el` は Linux 版と
-  同じく ON の状態を前提にしているので、セッション作成直後に ON にしています
+- `mozc.el` uses 32-bit session ids and the engine 64-bit ones, so it keeps a map between them,
+  as the official helper does
+- Mozc on Windows starts a session with the IME off; `mozc.el` expects it on as on Linux, so the
+  helper turns it on right after creating the session
 
-## Mozc を新しい版に更新する
+## Updating Mozc
 
-1. 使う Mozc のコミットを決め、`build.ps1` 先頭の `$mozc` のコミットハッシュ（40 桁）を書き換えます。
-2. `.\build.ps1` を実行します。Mozc の `src/MODULE.bazel` が要求する abseil / protobuf の版や、
-   辞書データの元になる外部ファイル（郵便番号データ・用例辞書）の SHA-256 が `build.ps1` の
-   固定値と違うと、直すべき値を表示して止まるので、`$abseil` / `$protobuf` / `$externals` を
-   MODULE.bazel に合わせて再実行します（abseil / protobuf は自動で作り直されます）。
-   MODULE.bazel に外部ファイルが増えた場合は `mini_bazel.py` が「見つからない」と止まるので、
-   その `http_archive` を `$externals` に足します。
-3. 上の「動作確認」と、Emacs での入力・変換を確かめます。
+1. Pick a Mozc commit and set the 40-digit hash in `$mozc` at the top of `build.ps1`.
+2. Run `.\build.ps1`. If the abseil or protobuf versions, or the SHA-256 of the dictionary
+   sources (postal code data, usage dictionary), required by Mozc's `src/MODULE.bazel` differ from
+   those pinned in `build.ps1`, it stops and shows the values to change. Update `$abseil`,
+   `$protobuf` and `$externals` to match and run it again (abseil and protobuf are rebuilt
+   automatically). If MODULE.bazel adds an external file, `mini_bazel.py` stops with "not found";
+   add that `http_archive` to `$externals`.
+3. Run the check above and try typing in Emacs.
 
-ビルドが通らないときは、失敗した段階で直す場所が決まっています。作業ディレクトリの
-`mozc\` は Mozc のソース（パッチ適用済み）、`out\` は ninja のビルドディレクトリで、
-`out\` で `ninja` を直接実行すれば失敗した所だけをやり直せます（その場合は
-`$env:PYTHONPATH` に `mozc\src` を設定し、w64devkit の `bin` を `PATH` の先頭に）。
+When the build fails, where to fix depends on the stage. In the work directory, `mozc\` is the
+patched Mozc source and `out\` is the ninja build directory; running `ninja` in `out\` redoes only
+what failed (set `$env:PYTHONPATH` to `mozc\src` and put w64devkit's `bin` first in `PATH`).
 
-| 失敗した段階 | 直す場所 |
+| Failed stage | Where to fix |
 |:---|:---|
-| `git apply`（パッチが当たらない） | 作業ディレクトリの `mozc\` で `git checkout -- .` してから同じ修正をし直し、`git diff > patches\0001-build-with-mingw-gcc.patch` で作り直す |
-| `mini_bazel.py`（BUILD の評価） | Mozc が新しいルール・マクロを使い始めた。`mini_bazel.py` の `BASE_ENV` にスタブを足す（未知の名前は何もしないルールとして扱われるので、出力を生むものだけ実装が要る） |
-| コンパイル | MSVC 専用の書き方が増えた。小さければ `patches/` に追加、ATL などファイルごと通らなければ `mini_bazel.py` の `SRC_OVERRIDES` / `EXTRA_SRCS` で `emacs_standalone/` の代替実装に差し替える。WIL が原因なら `$wil` を新しいコミットに |
-| リンク（`undefined reference`） | 足りない Windows のライブラリを `mini_bazel.py` の `HEADER` の `syslibs` に足す。MinGW に無い関数なら `emacs_standalone/` に代替実装を置き、`EXTRA_SRCS` で足す |
-| 辞書データの生成 | ninja が実行したコマンドは `out\cmds\*.sh` にある。`out\` で `sh cmds\<名前>.sh` を実行すると単独で再現できる |
-| helper は動くが `mozc.el` で使えない | `emacs_standalone/mozc_emacs_helper_standalone.cc` を、Mozc 公式の `src/unix/emacs/mozc_emacs_helper.cc` の変更に合わせる（S 式の処理自体は Mozc 側の `mozc_emacs_helper_lib` をそのまま使っている） |
+| `git apply` (patch does not apply) | In `mozc\` of the work directory, `git checkout -- .`, redo the changes and regenerate with `git diff > patches\0001-build-with-mingw-gcc.patch` |
+| `mini_bazel.py` (evaluating BUILD) | Mozc uses a new rule or macro. Add a stub to `BASE_ENV` in `mini_bazel.py` (unknown names become no-op rules, so only ones that produce outputs need an implementation) |
+| Compile | More MSVC-only code. Add small fixes to `patches/`; for whole files that cannot build (e.g. ATL), swap in a replacement under `emacs_standalone/` via `SRC_OVERRIDES` / `EXTRA_SRCS` in `mini_bazel.py`. If WIL is the cause, move `$wil` to a newer commit |
+| Link (`undefined reference`) | Add the missing Windows library to `syslibs` in `HEADER` of `mini_bazel.py`. For a function MinGW lacks, put a replacement in `emacs_standalone/` and add it with `EXTRA_SRCS` |
+| Dictionary data generation | The commands ninja ran are in `out\cmds\*.sh`; run `sh cmds\<name>.sh` in `out\` to reproduce one alone |
+| The helper runs but `mozc.el` cannot use it | Follow changes to Mozc's `src/unix/emacs/mozc_emacs_helper.cc` in `emacs_standalone/mozc_emacs_helper_standalone.cc` (the S-expression handling itself is Mozc's `mozc_emacs_helper_lib`) |
 
-## ライセンス
+## License / ライセンス
 
-このリポジトリのファイルは BSD 3-Clause です（[LICENSE](LICENSE)）。
-`emacs_standalone/mozc_emacs_helper_standalone.cc` と `patches/` は Mozc を元にしており、
-Mozc の著作権表示（Google Inc.、BSD 3-Clause）は [LICENSE.mozc](LICENSE.mozc) にあります。
+This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`
+and `patches/` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
+本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`
+と `patches/` は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
-ビルドした `mozc_emacs_helper.exe` には次のものが含まれます。ライセンス文は
-`build.ps1` が `-OutDir` の `LICENSES\` に書き出します。
+This repository does not contain Mozc, its dictionary or a prebuilt exe. A built
+`mozc_emacs_helper.exe` contains the following; `build.ps1` writes their license texts to
+`LICENSES\` in `-OutDir`. Pass them along with the exe.
 
-| 含まれるもの | ライセンス |
+| Contained | License |
 |:---|:---|
 | Mozc | BSD 3-Clause |
-| Mozc の辞書データ（IPAdic・沖縄辞書ほか） | IPAdic / 沖縄辞書のライセンス（`mozc-dictionary_oss.README.txt`） |
-| 用例辞書 (japanese-usage-dictionary) | BSD 2-Clause |
+| Mozc dictionary data (IPAdic, Okinawa dictionary and others) | IPAdic / Okinawa dictionary licenses (`mozc-dictionary_oss.README.txt`) |
+| Usage dictionary (japanese-usage-dictionary) | BSD 2-Clause |
 | abseil-cpp | Apache License 2.0 |
 | protobuf | BSD 3-Clause |
 | WIL (Windows Implementation Libraries) | MIT |
 
-郵便番号辞書は日本郵便の郵便番号データから生成されます。
+The postal code dictionary is generated from Japan Post's postal code data.
 
+## Acknowledgements / 謝辞
+
+This project is built on the following software. We express our utmost respect and gratitude to
+its creators and contributors:
+
+本プロジェクトは、以下のソフトウェアの上に成り立っています。これらを生み出した開発者および
+コミュニティの皆様に、最大限の敬意と謝意を表します。
+
+- **[Mozc](https://github.com/google/mozc)**
+  - Copyright 2010-2021, Google Inc.
+  - Licensed under the BSD 3-Clause License
+- **[w64devkit](https://github.com/skeeto/w64devkit)** — Christopher Wellons
+
+This project is not affiliated with Google.  
 このプロジェクトは Google とは関係のない、個人によるものです。
+
+---
+
+<p align="center">Copyright © 2026 elecxzy project</p>

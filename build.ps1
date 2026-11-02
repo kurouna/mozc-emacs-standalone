@@ -1,4 +1,4 @@
-# Copyright 2026, Shinsaku Nakagawa
+# Copyright 2026, elecxzy project
 # Use of this source code is governed by the BSD 3-Clause license in LICENSE.
 #
 # Mozc の変換エンジンと辞書を内蔵した mozc_emacs_helper.exe をビルドする。
