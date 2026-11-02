@@ -1,0 +1,105 @@
+# Build mozc_emacs_helper.exe on Windows and publish a release.
+#
+# - Pushing a tag that starts with "v" (e.g. v0.0.4) builds the zip and
+#   creates a GitHub release for that tag.
+# - Running it by hand (Actions > release > Run workflow) only builds the zip
+#   and keeps it as a workflow artifact, without making a release.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  W64DEVKIT_VERSION: '2.9.1'
+  W64DEVKIT_SHA256: '9208c19755cd4964b7915b9afcf02c66d493a4c870c4b3e83f6c538d9c1237a5'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up w64devkit
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'w64devkit.7z.exe'
+          $url = "https://github.com/skeeto/w64devkit/releases/download/v$env:W64DEVKIT_VERSION/w64devkit-x64-$env:W64DEVKIT_VERSION.7z.exe"
+          Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $exe
+          $actual = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+          if ($actual -ne $env:W64DEVKIT_SHA256) { throw "w64devkit SHA-256 mismatch: $actual" }
+          # self-extracting 7z archive; creates <dir>\w64devkit
+          & $exe -y "-o$env:RUNNER_TEMP" | Out-Null
+          $bin = Join-Path $env:RUNNER_TEMP 'w64devkit\bin'
+          if (-not (Test-Path (Join-Path $bin 'gcc.exe'))) { throw "gcc.exe not found in $bin" }
+          "DEVKIT_BIN=$bin" >> $env:GITHUB_ENV
+
+      # abseil / protobuf take most of the first build.  Their versions are
+      # pinned in build.ps1, so key the cache on it.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\mozc-build\prefix
+          key: deps-${{ env.W64DEVKIT_VERSION }}-${{ hashFiles('build.ps1') }}
+
+      - name: Build
+        run: |
+          .\build.ps1 -DevkitBin $env:DEVKIT_BIN -WorkDir (Join-Path $env:RUNNER_TEMP 'mozc-build') -OutDir dist
+
+      - name: Package
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { 'dev-' + $env:GITHUB_SHA.Substring(0, 7) }
+          $name = "mozc-emacs-standalone-$version-win-x64"
+          $stage = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item -Recurse dist\* $stage
+          Copy-Item README.md, README.ja.md $stage
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip
+          $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          "ZIP=$zip" >> $env:GITHUB_ENV
+          "ZIP_NAME=$name.zip" >> $env:GITHUB_ENV
+          "ZIP_SHA256=$sha" >> $env:GITHUB_ENV
+          "VERSION=$version" >> $env:GITHUB_ENV
+          Write-Host "$name.zip $sha"
+
+      - name: Smoke test
+        run: |
+          # Convert the reading "kanji" and commit; the last line must carry a result
+          $out = "(0 CreateSession)`n(1 SendKey 1 107)`n(2 SendKey 1 97)`n(3 SendKey 1 110)`n(4 SendKey 1 106)`n(5 SendKey 1 105)`n(6 SendKey 1 space)`n(7 SendKey 1 enter)" |
+                 .\dist\mozc_emacs_helper.exe --suppress_stderr | Select-Object -Last 1
+          Write-Host $out
+          if ($out -notmatch '\(result \.') { throw 'smoke test failed: no result' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP }}
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $mozc = [regex]::Match((Get-Content -Raw build.ps1), "google/mozc', '([0-9a-f]{40})'").Groups[1].Value
+          $notes = (Get-Content -Raw -Encoding UTF8 .github\release-notes.md).
+            Replace('{VERSION}', $env:VERSION).
+            Replace('{ZIP_NAME}', $env:ZIP_NAME).
+            Replace('{ZIP_SHA256}', $env:ZIP_SHA256).
+            Replace('{MOZC_COMMIT}', $mozc).
+            Replace('{MOZC_SHORT}', $mozc.Substring(0, 7)).
+            Replace('{W64DEVKIT_VERSION}', $env:W64DEVKIT_VERSION)
+          $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+          [IO.File]::WriteAllText($notesFile, $notes, (New-Object Text.UTF8Encoding $false))
+          gh release create $env:GITHUB_REF_NAME $env:ZIP --title $env:GITHUB_REF_NAME --notes-file $notesFile --generate-notes

@@ -74,6 +74,9 @@ function Get-Source($spec, $dir) {
   if (-not (Test-Path (Join-Path $dir '.git'))) {
     Invoke-Native git init -q $dir
     Invoke-Native git -C $dir remote add origin $repo
+    # 改行を変換しない（GitHub Actions の Windows は core.autocrlf=true が既定で、
+    # CRLF になるとパッチが当たらない・データ生成の結果が変わる）
+    Invoke-Native git -C $dir config core.autocrlf false
   }
   Invoke-Native git -C $dir fetch -q --depth 1 origin $rev
   Invoke-Native git -C $dir checkout -q -f FETCH_HEAD
