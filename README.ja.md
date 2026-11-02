@@ -178,6 +178,23 @@ helper 単体で、「かんじ」を変換・確定できるかを確かめら�
 "(0 CreateSession)`n(1 SendKey 1 107)`n(2 SendKey 1 97)`n(3 SendKey 1 110)`n(4 SendKey 1 106)`n(5 SendKey 1 105)`n(6 SendKey 1 space)`n(7 SendKey 1 enter)" | .\dist\mozc_emacs_helper.exe --suppress_stderr
 ```
 
+## 制限事項
+
+- **複数の Emacs で同時に使う場合**：Emacs ごとに helper が 1 つずつ起動します。Mozc は変換
+  サーバーが 1 つだけの前提で作られているので、helper どうしは学習データ
+  （`%USERPROFILE%\AppData\LocalLow\Mozc\`）の排他制御をしません。ファイルが壊れることは
+  ありません（`history.db` は一時ファイルに書いてから丸ごと差し替え、`segment.db` /
+  `boundary.db` は固定長の記録の並び）が、学習が失われることがあります。`history.db` は
+  最後に保存した helper の内容になり、`segment.db` / `boundary.db` では helper どうしが
+  互いの記録を上書きします。変換はどの Emacs でもでき、Emacs が 1 つなら問題は起きません
+- **ユーザー辞書の変更は、変更した Emacs にだけすぐ効きます**：`mozc-user-dict.el` はその
+  Emacs の helper を再起動します。ほかの Emacs は `M-x mozc-user-dict-reload` か再起動まで
+  古い辞書のままです
+- **候補一覧の表示**：`mozc.el` は、候補一覧がウィンドウに入りきるときはバッファ上に、
+  入りきらないとき（ウィンドウが小さい・文字が大きいなど）はエコーエリアに表示します
+- **システム辞書**：システム辞書は exe に組み込まれるので、ほかの辞書を足すには Mozc 本体と
+  同じくビルドし直す必要があります。後から増やせるのはユーザー辞書だけです
+
 ## 中身
 
 | パス | 内容 |

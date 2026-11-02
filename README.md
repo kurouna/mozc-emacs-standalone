@@ -176,6 +176,24 @@ Converts the reading kanji and commits it. You are fine if the last line has `(r
 "(0 CreateSession)`n(1 SendKey 1 107)`n(2 SendKey 1 97)`n(3 SendKey 1 110)`n(4 SendKey 1 106)`n(5 SendKey 1 105)`n(6 SendKey 1 space)`n(7 SendKey 1 enter)" | .\dist\mozc_emacs_helper.exe --suppress_stderr
 ```
 
+## Limitations
+
+- **Several Emacs at once**: each Emacs starts its own helper, while Mozc assumes a single
+  conversion server, so the helpers do not lock the learning data in
+  `%USERPROFILE%\AppData\LocalLow\Mozc\` against each other. The files are not corrupted
+  (`history.db` is replaced as a whole through a temporary file, and `segment.db` /
+  `boundary.db` are made of fixed-size records), but learning can be lost: `history.db` ends up
+  with whatever the helper that saved last had, and in `segment.db` / `boundary.db` the helpers
+  overwrite each other's records. Conversion itself works in every Emacs, and with a single
+  Emacs there is no issue.
+- **User dictionary changes reach only the Emacs that made them**: `mozc-user-dict.el` restarts
+  the helper of that Emacs. Other Emacs keep the old dictionary until `M-x mozc-user-dict-reload`
+  or a restart.
+- **Candidate window**: `mozc.el` draws the candidate list in the buffer when it fits in the
+  window, and falls back to the echo area otherwise (e.g. in a small window or with a large font).
+- **System dictionary**: the system dictionary is built into the exe, so adding another one needs
+  a rebuild, as in Mozc itself. Only the user dictionary can be extended afterwards.
+
 ## Contents
 
 | Path | Contents |
