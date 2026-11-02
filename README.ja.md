@@ -11,9 +11,16 @@ Windows の GNU Emacs で、[Mozc](https://github.com/google/mozc) を `C-\` の
 内蔵した `mozc_emacs_helper.exe` を、[w64devkit](https://github.com/skeeto/w64devkit)
 の gcc だけでビルドします。
 
-<p align="center">
-  <img src="./docs/screenshot.png" width="560" alt="GUI の Emacs で、同梱の Mozc を使って「きしゃ」を変換している画面。下に候補一覧が出ている">
-</p>
+<table>
+  <tr>
+    <td><img src="./docs/candidates-homophones.png" alt="「きしゃのきしゃがきしゃできしゃした」を変換中。3 つ目の文節の候補一覧（記者で・貴社で・汽車で・帰社で…）が、文節のすぐ下にバッファ上で表示されている"></td>
+    <td><img src="./docs/candidates-date.png" alt="「きょう」を変換中。候補一覧に「今日」と、今日の日付（2026/11/02・2026年11月2日・令和8年11月2日・月曜日）が「今日の日付」の注釈付きで並んでいる"></td>
+  </tr>
+  <tr>
+    <td align="center">同音異義語も文節ごとに</td>
+    <td align="center">日付・郵便番号・計算・絵文字も</td>
+  </tr>
+</table>
 
 - IME のインストールも、変換サーバー (`mozc_server`) も要りません
 - Emacs 側は Mozc 公式の `mozc.el` をそのまま使います（GUI でも `-nw` でも同じ）
@@ -142,6 +149,10 @@ Mozc 公式の辞書ツールは Qt で作られた別の GUI アプリで、こ
 代わりに `mozc-user-dict.el` が、ユーザー辞書（`%USERPROFILE%\AppData\LocalLow\Mozc\user_dictionary.db`）
 を Emacs Lisp だけで読み書きし、書き換えたら helper を再起動して読み直させます
 （mozc.el は再起動を検知してセッションを作り直します）。
+
+<p align="center">
+  <img src="./docs/user-dictionary.png" width="560" alt="M-x mozc-user-dict-list の画面。よみ・単語・品詞・辞書の列でユーザー辞書の単語が並び、下に a 登録 / d 削除 / i 取り込み / g 再読込 / q 閉じる の凡例が出ている">
+</p>
 
 | コマンド | 動作 |
 |:---|:---|

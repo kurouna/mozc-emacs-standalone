@@ -10,9 +10,16 @@ A build kit for using [Mozc](https://github.com/google/mozc) as a `C-\` input me
 on Windows. It builds a `mozc_emacs_helper.exe` with the Mozc conversion engine and dictionary
 linked in, using only the gcc of [w64devkit](https://github.com/skeeto/w64devkit).
 
-<p align="center">
-  <img src="./docs/screenshot.png" width="560" alt="GUI Emacs converting Japanese with the bundled Mozc: the reading kisha is being converted and the candidate list is shown below">
-</p>
+<table>
+  <tr>
+    <td><img src="./docs/candidates-homophones.png" alt="Converting the sentence kisha no kisha ga kisha de kisha shita: the third segment is focused and its candidate list (記者で, 貴社で, 汽車で, 帰社で...) is shown in the buffer right below it"></td>
+    <td><img src="./docs/candidates-date.png" alt="Converting kyou: the candidate list shows 今日 and today's date in several formats (2026/11/02, 2026年11月2日, 令和8年11月2日, 月曜日) annotated as today's date"></td>
+  </tr>
+  <tr>
+    <td align="center">Homophones, segment by segment</td>
+    <td align="center">Dates, postal codes, calculations and emoji too</td>
+  </tr>
+</table>
 
 - No IME to install and no conversion server (`mozc_server`)
 - Emacs uses Mozc's official `mozc.el` as is, in GUI and in `-nw`
@@ -140,6 +147,10 @@ Mozc's dictionary tool is a separate Qt GUI that this kit does not build. Instea
 `mozc-user-dict.el` reads and writes the user dictionary
 (`%USERPROFILE%\AppData\LocalLow\Mozc\user_dictionary.db`) in pure Emacs Lisp, then restarts the
 helper so that it reloads the dictionary (`mozc.el` notices the restart and recreates its sessions).
+
+<p align="center">
+  <img src="./docs/user-dictionary.png" width="560" alt="M-x mozc-user-dict-list: the user dictionary list with reading, word, part of speech and dictionary columns, and the key legend a 登録 / d 削除 / i 取り込み / g 再読込 / q 閉じる below it">
+</p>
 
 | Command | Action |
 |:---|:---|
