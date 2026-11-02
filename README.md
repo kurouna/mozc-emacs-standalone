@@ -64,7 +64,7 @@ Put `mozc.el` and `mozc_emacs_helper.exe` somewhere and set up Emacs as in
 - [w64devkit](https://github.com/skeeto/w64devkit/releases) (includes gcc, cmake, ninja and sh);
   just extract `w64devkit-x64-*.7z.exe`
 - git
-- Python 3 (`python` on `PATH`)
+- Python 3 (`python` on `PATH`) with absl-py (`python -m pip install absl-py`)
 - An internet connection (to fetch Mozc, abseil, protobuf, WIL and the dictionary sources)
 
 ## Build

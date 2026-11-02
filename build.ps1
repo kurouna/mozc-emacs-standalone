@@ -6,7 +6,7 @@
 #   .\build.ps1
 #   .\build.ps1 -DevkitBin C:\w64devkit\bin -WorkDir D:\mozc-build -OutDir $env:APPDATA\.emacs.d\mozc
 #
-# 必要なもの: w64devkit (gcc/g++/cmake/ninja/sh)、git、Python 3 (PATH 上の python)。
+# 必要なもの: w64devkit (gcc/g++/cmake/ninja/sh)、git、Python 3 (PATH 上の python) と absl-py。
 # Bazel は使わない。Mozc の BUILD.bazel を mini_bazel.py で読んで build.ninja を
 # 生成し、辞書データの生成からリンクまでを ninja で行う。
 # 初回は abseil / protobuf のビルドを含めて 10〜20 分ほどかかる。
@@ -52,6 +52,11 @@ if (-not (Test-Path (Join-Path $DevkitBin 'gcc.exe'))) {
 }
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
   throw 'python が見つかりません — Python 3 を PATH に入れてください'
+}
+# 辞書データを作る Mozc の Python スクリプトの一部は absl-py (abseil-py) を使う
+& python -c 'import absl' 2>$null
+if ($LASTEXITCODE -ne 0) {
+  throw 'Python の absl-py がありません — python -m pip install absl-py で入れてください'
 }
 $env:Path = "$DevkitBin;$env:Path"
 New-Item -ItemType Directory -Force $WorkDir | Out-Null

@@ -33,6 +33,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Some of Mozc's data generators import absl (abseil-py; MODULE.bazel pins 2.1.0)
+      - name: Install absl-py
+        run: python -m pip install absl-py==2.1.0
+
       - name: Set up w64devkit
         run: |
           $exe = Join-Path $env:RUNNER_TEMP 'w64devkit.7z.exe'

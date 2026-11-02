@@ -64,7 +64,7 @@ S 式）は公式と同じなので、Emacs 側は公式の `mozc.el` がその�
 - [w64devkit](https://github.com/skeeto/w64devkit/releases)（gcc / cmake / ninja / sh を含む）。
   `w64devkit-x64-*.7z.exe` を展開するだけで使えます
 - git
-- Python 3（`PATH` 上の `python`）
+- Python 3（`PATH` 上の `python`）と absl-py（`python -m pip install absl-py`）
 - インターネット接続（Mozc・abseil・protobuf・WIL・辞書の元データを取得します）
 
 ## ビルド
