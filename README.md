@@ -18,8 +18,9 @@ linked in, using only the gcc of [w64devkit](https://github.com/skeeto/w64devkit
 - Emacs uses Mozc's official `mozc.el` as is, in GUI and in `-nw`
 - No Bazel and no MSVC
 
-This repository contains only the build script, patches and extra sources. It does not contain
-Mozc, its dictionary or a prebuilt exe; the build fetches them from their upstream sources.
+This repository contains only the build script, patches and extra sources; the build fetches
+Mozc and its dictionary from their upstream sources. A prebuilt zip is available from
+[Releases](https://github.com/kurouna/mozc-emacs-standalone/releases).
 
 ## How it works
 
@@ -41,6 +42,20 @@ helper, so the official `mozc.el` works with it unchanged.
 | Requires | Mozc / Google Japanese Input installed | one exe (about 26 MB) |
 | Dictionary | the server's | Mozc's open-source dictionary |
 | Learning and user dictionary | shared with the server (and other apps) | the helper's own (`%USERPROFILE%\AppData\LocalLow\Mozc\`) |
+
+## Download
+
+Get `mozc-emacs-standalone-<version>-win-x64.zip` from [Releases](https://github.com/kurouna/mozc-emacs-standalone/releases) and extract it.
+
+| File | Contents |
+|:---|:---|
+| `mozc_emacs_helper.exe` | The helper with the Mozc engine and dictionary inside |
+| `mozc.el` | Mozc's official `mozc.el` of the same version |
+| `LICENSES\` | License texts of what the exe contains. Keep them with the exe when you pass it on |
+| `README.md` / `README.ja.md` | This document |
+
+Put `mozc.el` and `mozc_emacs_helper.exe` somewhere and set up Emacs as in
+[Use from Emacs](#use-from-emacs). To build it yourself, read on.
 
 ## Requirements
 
@@ -171,9 +186,10 @@ and `patches/` are derived from Mozc; the Mozc copyright notice is in [LICENSE.m
 本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`
 と `patches/` は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
-This repository does not contain Mozc, its dictionary or a prebuilt exe. A built
-`mozc_emacs_helper.exe` contains the following; `build.ps1` writes their license texts to
-`LICENSES\` in `-OutDir`. Pass them along with the exe.
+The repository itself does not contain Mozc or its dictionary. `mozc_emacs_helper.exe`, both the
+one in the release zip and one you build, contains the following. Their license texts are in
+`LICENSES\` of the zip, and `build.ps1` writes them to `LICENSES\` in `-OutDir`. Pass them along
+with the exe.
 
 | Contained | License |
 |:---|:---|
@@ -183,6 +199,7 @@ This repository does not contain Mozc, its dictionary or a prebuilt exe. A built
 | abseil-cpp | Apache License 2.0 |
 | protobuf | BSD 3-Clause |
 | WIL (Windows Implementation Libraries) | MIT |
+| MinGW-w64 runtime (startup code, winpthreads) | MinGW-w64 runtime licenses (`MinGW-w64-runtime.txt`) |
 
 The postal code dictionary is generated from Japan Post's postal code data.
 

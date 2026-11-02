@@ -19,8 +19,8 @@ Windows の GNU Emacs で、[Mozc](https://github.com/google/mozc) を `C-\` の
 - Emacs 側は Mozc 公式の `mozc.el` をそのまま使います（GUI でも `-nw` でも同じ）
 - Bazel も MSVC も使いません
 
-このリポジトリにあるのはビルドスクリプト・パッチ・追加ソースだけです。
-Mozc 本体・辞書・ビルド済みの exe は含みません（ビルド時に各配布元から取得します）。
+このリポジトリにあるのはビルドスクリプト・パッチ・追加ソースだけで、Mozc 本体と辞書は
+ビルド時に各配布元から取得します。ビルド済みの zip は [Releases](https://github.com/kurouna/mozc-emacs-standalone/releases) から入手できます。
 
 ## 仕組み
 
@@ -42,6 +42,20 @@ S 式）は公式と同じなので、Emacs 側は公式の `mozc.el` がその�
 | 前提 | Mozc / Google 日本語入力のインストール | exe 1 つ（約 26MB） |
 | 辞書 | サーバー側のもの | Mozc のオープンソース版の辞書 |
 | 学習・ユーザー辞書 | サーバーと共有（他のアプリと共通） | helper 専用（`%USERPROFILE%\AppData\LocalLow\Mozc\`） |
+
+## ダウンロード
+
+[Releases](https://github.com/kurouna/mozc-emacs-standalone/releases) から `mozc-emacs-standalone-<版>-win-x64.zip` を入手して展開します。
+
+| ファイル | 内容 |
+|:---|:---|
+| `mozc_emacs_helper.exe` | Mozc の変換エンジンと辞書を内蔵した helper |
+| `mozc.el` | 同じ版の Mozc 公式 `mozc.el` |
+| `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
+| `README.md` / `README.ja.md` | この説明 |
+
+`mozc.el` と `mozc_emacs_helper.exe` を好きな場所に置き、[Emacs で使う](#emacs-で使う) の
+とおりに設定します。自分でビルドする場合は、以下を読み進めてください。
 
 ## 必要なもの
 
@@ -176,9 +190,10 @@ and `patches/` are derived from Mozc; the Mozc copyright notice is in [LICENSE.m
 本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`
 と `patches/` は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
-このリポジトリには Mozc 本体・辞書・ビルド済みの exe は含まれません。ビルドした
-`mozc_emacs_helper.exe` には次のものが含まれ、ライセンス文は `build.ps1` が
-`-OutDir` の `LICENSES\` に書き出します。exe を人に渡すときは一緒に渡してください。
+リポジトリ自体には Mozc 本体と辞書は含まれません。リリースの zip に入っている
+`mozc_emacs_helper.exe` にも、自分でビルドしたものにも、次のものが含まれます。
+ライセンス文は zip の `LICENSES\` にあり、`build.ps1` も `-OutDir` の `LICENSES\` に
+書き出します。exe を人に渡すときは一緒に渡してください。
 
 | 含まれるもの | ライセンス |
 |:---|:---|
@@ -188,6 +203,7 @@ and `patches/` are derived from Mozc; the Mozc copyright notice is in [LICENSE.m
 | abseil-cpp | Apache License 2.0 |
 | protobuf | BSD 3-Clause |
 | WIL (Windows Implementation Libraries) | MIT |
+| MinGW-w64 ランタイム（スタートアップコード・winpthreads） | MinGW-w64 ランタイムのライセンス（`MinGW-w64-runtime.txt`） |
 
 郵便番号辞書は日本郵便の郵便番号データから生成されます。
 

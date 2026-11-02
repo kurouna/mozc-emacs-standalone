@@ -231,6 +231,13 @@ Copy-Item -Force (Join-Path $wilDir 'LICENSE') (Join-Path $licDir 'wil.LICENSE')
 Copy-Item -Force (Join-Path $mozcSrc 'data\dictionary_oss\README.txt') (Join-Path $licDir 'mozc-dictionary_oss.README.txt')
 Copy-Item -Force (Join-Path $extDir 'ja_usage_dict\LICENSE') (Join-Path $licDir 'japanese-usage-dictionary.LICENSE')
 Copy-Item -Force (Join-Path $PSScriptRoot 'LICENSE') (Join-Path $licDir 'mozc-emacs-standalone.LICENSE')
+# exe には MinGW-w64 のランタイム（スタートアップコード・winpthreads）が静的にリンクされる。
+# バイナリで配布するときはその表示が必要なので、w64devkit 同梱のものをコピーする
+$mingwLicense = Join-Path (Split-Path $DevkitBin -Parent) 'COPYING.MinGW-w64-runtime.txt'
+if (-not (Test-Path $mingwLicense)) {
+  throw "$mingwLicense がありません。exe を配布するには MinGW-w64 ランタイムのライセンス文が必要です"
+}
+Copy-Item -Force $mingwLicense (Join-Path $licDir 'MinGW-w64-runtime.txt')
 
 Write-Host "`n=== OK: $OutDir"
 Write-Host '    mozc_emacs_helper.exe / mozc.el / LICENSES\'
