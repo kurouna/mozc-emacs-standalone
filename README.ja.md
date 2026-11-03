@@ -62,6 +62,7 @@ S 式）は公式と同じなので、Emacs 側は公式の `mozc.el` がその�
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（[下記](#ユーザー辞書)）。v0.0.3 から同梱 |
 | `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
 | `README.md` / `README.ja.md` | この説明 |
+| `docs\` | README の画面写真 |
 
 `mozc.el` と `mozc_emacs_helper.exe` を好きな場所に置き、[Emacs で使う](#emacs-で使う) の
 とおりに設定します。自分でビルドする場合は、以下を読み進めてください。

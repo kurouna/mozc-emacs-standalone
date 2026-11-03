@@ -10,7 +10,7 @@
 ;; Emacs Lisp だけで読み書きする。Mozc 公式の辞書ツール（Qt の GUI）の代わり。
 ;;
 ;;   M-x mozc-user-dict-add     単語を登録（範囲選択中ならその文字列を単語に）
-;;   M-x mozc-user-dict-list    一覧（a 登録 / d 削除 / g 再読込 / q 閉じる）
+;;   M-x mozc-user-dict-list    一覧（a 登録 / d 削除 / i 取り込み / g 再読込 / q 閉じる）
 ;;   M-x mozc-user-dict-import  Microsoft IME などのテキスト辞書を取り込む
 ;;
 ;; 辞書ファイルは protobuf (mozc.user_dictionary.UserDictionaryStorage) を
@@ -261,6 +261,13 @@ ATOK の自動登録の印（末尾の $ と *）は区別しない。"
   (when (and (fboundp 'mozc-helper-process) (mozc-helper-process))
     (mozc-helper-process-stop)))
 
+(defun mozc-user-dict--entry-key (ef)
+  "単語のフィールド EF の (よみ 単語 品詞番号)。同じ単語かどうかはこれで決める。"
+  (list (mozc-user-dict--string ef 1)
+        (mozc-user-dict--string ef 2)
+        ;; pos の既定値は名詞 (1)
+        (or (mozc-user-dict--get ef 5) 1)))
+
 (defun mozc-user-dict--entries (storage)
   "STORAGE の全単語を (辞書名 よみ 単語 品詞番号 コメント) の並びで返す。"
   (cl-loop for dict in (mozc-user-dict--get-all storage 2)
@@ -268,12 +275,8 @@ ATOK の自動登録の印（末尾の $ と *）は区別しない。"
            for name = (mozc-user-dict--string dfields 3)
            append (cl-loop for e in (mozc-user-dict--get-all dfields 4)
                            for ef = (mozc-user-dict--decode e)
-                           collect (list name
-                                         (mozc-user-dict--string ef 1)
-                                         (mozc-user-dict--string ef 2)
-                                         ;; pos の既定値は名詞 (1)
-                                         (or (mozc-user-dict--get ef 5) 1)
-                                         (mozc-user-dict--string ef 4)))))
+                           collect `(,name ,@(mozc-user-dict--entry-key ef)
+                                           ,(mozc-user-dict--string ef 4)))))
 
 (defun mozc-user-dict--entry-fields (reading word pos comment)
   (append (list (cons 1 (cons 2 (mozc-user-dict--utf8 reading)))
@@ -300,21 +303,21 @@ ENTRIES は (よみ 単語 品詞番号 コメント) の並び。同じよみ�
          (found nil)
          (added 0)
          (add (lambda (dfields)
-                (let ((existing (mapcar (lambda (e)
-                                          (let ((ef (mozc-user-dict--decode e)))
-                                            (list (mozc-user-dict--string ef 1)
-                                                  (mozc-user-dict--string ef 2)
-                                                  (or (mozc-user-dict--get ef 5) 1))))
-                                        (mozc-user-dict--get-all dfields 4))))
+                ;; 何万語でも線形で済むよう、登録済みの単語はハッシュ表で引き、
+                ;; 足す単語は最後にまとめて辞書の後ろに付ける
+                (let ((existing (make-hash-table :test #'equal))
+                      new-fields)
+                  (dolist (e (mozc-user-dict--get-all dfields 4))
+                    (puthash (mozc-user-dict--entry-key (mozc-user-dict--decode e)) t existing))
                   (dolist (e entries)
-                    (unless (member (list (nth 0 e) (nth 1 e) (nth 2 e)) existing)
-                      (push (list (nth 0 e) (nth 1 e) (nth 2 e)) existing)
-                      (setq added (1+ added))
-                      (setq dfields
-                            (append dfields
-                                    (list (cons 4 (cons 2 (mozc-user-dict--encode
-                                                           (apply #'mozc-user-dict--entry-fields e)))))))))
-                  dfields)))
+                    (let ((key (list (nth 0 e) (nth 1 e) (nth 2 e))))
+                      (unless (gethash key existing)
+                        (puthash key t existing)
+                        (setq added (1+ added))
+                        (push (cons 4 (cons 2 (mozc-user-dict--encode
+                                               (apply #'mozc-user-dict--entry-fields e))))
+                              new-fields))))
+                  (append dfields (nreverse new-fields)))))
          (new (mozc-user-dict--map-dictionaries
                storage
                (lambda (dfields)
@@ -369,22 +372,24 @@ ENTRIES は (よみ 単語 品詞番号 コメント) の並び。同じよみ�
                (mozc-user-dict-pos-name pos)))))
 
 (defun mozc-user-dict--delete (dict-name reading word pos)
-  "辞書 DICT-NAME から、よみ・単語・品詞が一致する単語を消す。"
-  (let ((deleted 0))
-    (mozc-user-dict--write
-     (mozc-user-dict--map-dictionaries
-      (mozc-user-dict--read)
-      (lambda (dfields)
-        (when (equal (mozc-user-dict--string dfields 3) dict-name)
-          (cl-remove-if (lambda (f)
-                          (and (eq (car f) 4)
-                               (let ((ef (mozc-user-dict--decode (cddr f))))
-                                 (when (and (equal (mozc-user-dict--string ef 1) reading)
-                                            (equal (mozc-user-dict--string ef 2) word)
-                                            (equal (or (mozc-user-dict--get ef 5) 1) pos))
-                                   (setq deleted (1+ deleted))
-                                   t))))
-                        dfields)))))
+  "辞書 DICT-NAME から、よみ・単語・品詞が一致する単語を消し、消した数を返す。
+一つも無ければ辞書ファイルには触らない（helper も再起動しない）。"
+  (let* ((key (list reading word pos))
+         (deleted 0)
+         (storage
+          (mozc-user-dict--map-dictionaries
+           (mozc-user-dict--read)
+           (lambda (dfields)
+             (when (equal (mozc-user-dict--string dfields 3) dict-name)
+               (cl-remove-if (lambda (f)
+                               (and (eq (car f) 4)
+                                    (equal (mozc-user-dict--entry-key
+                                            (mozc-user-dict--decode (cddr f)))
+                                           key)
+                                    (cl-incf deleted)))
+                             dfields))))))
+    (unless (zerop deleted)
+      (mozc-user-dict--write storage))
     deleted))
 
 ;;;###autoload
@@ -507,9 +512,12 @@ Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の�
   (pcase-let ((`(,dict ,reading ,word ,pos ,_comment) (tabulated-list-get-id)))
     (unless reading (user-error "単語の行で実行してください"))
     (when (y-or-n-p (format "「%s」(%s) を消しますか? " word reading))
-      (mozc-user-dict--delete dict reading word pos)
-      (revert-buffer)
-      (message "「%s」を消しました" word))))
+      (let ((deleted (mozc-user-dict--delete dict reading word pos)))
+        (revert-buffer)
+        (pcase deleted
+          (0 (message "「%s」は辞書にもうありませんでした（一覧を読み直しました）" word))
+          (1 (message "「%s」を消しました" word))
+          (_ (message "「%s」を消しました（よみ・品詞も同じ %d 語）" word deleted)))))))
 
 (provide 'mozc-user-dict)
 ;;; mozc-user-dict.el ends here

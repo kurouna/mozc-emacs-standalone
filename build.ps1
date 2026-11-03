@@ -47,6 +47,14 @@ $externals = @(
     '140f24f71f7d78d5eb5b93a9c079f44f23728dca5ab16bf857fe8a3fa1bf20ed', 'japanese-usage-dictionary-2025-01-25')
 )
 
+# mini_bazel.py は作業ディレクトリ（abseil / protobuf / WIL）とこのリポジトリ（compat）の
+# 絶対パスを、引用符なしで ninja のコマンドに書く。空白があると引数が割れるので先に止める
+if ($WorkDir -match '\s') {
+  throw "作業ディレクトリのパスに空白があります: $WorkDir — 空白の無い場所を -WorkDir で指定してください（例: -WorkDir C:\mozc-build）"
+}
+if ($PSScriptRoot -match '\s') {
+  throw "このリポジトリのパスに空白があります: $PSScriptRoot — 空白の無い場所に置き直してください"
+}
 if (-not (Test-Path (Join-Path $DevkitBin 'gcc.exe'))) {
   throw "gcc.exe not found in $DevkitBin — w64devkit の bin を -DevkitBin で指定してください"
 }
@@ -136,13 +144,27 @@ if ($mismatch.Count -gt 0) {
 }
 
 # ---- Mozc に MinGW 用のパッチと追加パッケージを当てる ------------------------
-# 毎回まっさらな状態から当て直す（パッチを直したときに二重に当たらないように）
-Write-Host '== patch mozc'
-Invoke-Native git -C $mozcDir checkout -q -- .
-Invoke-Native git -C $mozcDir clean -q -fd -- src/emacs_standalone
-foreach ($p in Get-ChildItem (Join-Path $PSScriptRoot 'patches\*.patch') | Sort-Object Name) {
-  Invoke-Native git -C $mozcDir apply --whitespace=nowarn $p.FullName
+# パッチはまっさらな状態から当て直す（パッチを直したときに二重に当たらないように）。
+# ただし当て直すとファイルの更新時刻が変わり、それを使う 11 個の exe の再リンクと辞書データの
+# 作り直しが毎回起きるので、Mozc の版・パッチ・作業ツリーの差分が前回と同じなら当て直さない
+$patches = @(Get-ChildItem (Join-Path $PSScriptRoot 'patches\*.patch') | Sort-Object Name)
+function Get-PatchState {
+  $diff = (& git -C $mozcDir diff --no-color) -join "`n"
+  if ($LASTEXITCODE -ne 0) { throw "git diff failed (exit $LASTEXITCODE)" }
+  "$($mozc[1])`n" + (($patches | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ' ') + "`n$diff"
 }
+$patchStamp = Join-Path $mozcDir '.git\mozc-build-patched'
+if (-not ((Test-Path $patchStamp) -and
+          [System.IO.File]::ReadAllText($patchStamp) -ceq (Get-PatchState))) {
+  Write-Host '== patch mozc'
+  Invoke-Native git -C $mozcDir checkout -q -- .
+  foreach ($p in $patches) {
+    Invoke-Native git -C $mozcDir apply --whitespace=nowarn $p.FullName
+  }
+  [System.IO.File]::WriteAllText($patchStamp, (Get-PatchState))
+}
+# 追加パッケージは毎回入れ直す（Copy-Item は更新時刻を保つので、変えていないファイルは再ビルドされない）
+Invoke-Native git -C $mozcDir clean -q -fd -- src/emacs_standalone
 Copy-Item -Recurse -Force (Join-Path $PSScriptRoot 'emacs_standalone') (Join-Path $mozcDir 'src')
 
 # ---- 辞書データの元になる外部ファイル ----------------------------------------
@@ -228,9 +250,11 @@ try {
 
 # ---- exe と同じ版の mozc.el とライセンス文 -----------------------------------
 # mozc.el は 1 行目に lexical-binding: nil のクッキーだけ足す（Emacs 31 の
-# "Missing lexical-binding cookie" 警告対策。動作は変わらない）。
+# "Missing lexical-binding cookie" 警告対策。動作は変わらない）。Mozc 側で付いたら何もしない。
 $el = Get-Content -Raw -Encoding UTF8 (Join-Path $mozcSrc 'unix\emacs\mozc.el')
-$el = [regex]::Replace($el, '\A([^\r\n]*)', '$1  -*- lexical-binding: nil -*-')
+if ($el -notmatch '\A[^\r\n]*lexical-binding') {
+  $el = [regex]::Replace($el, '\A([^\r\n]*)', '$1  -*- lexical-binding: nil -*-')
+}
 Write-Utf8Lf (Join-Path $OutDir 'mozc.el') $el
 Copy-Item -Force (Join-Path $PSScriptRoot 'mozc-user-dict.el') $OutDir
 # exe を配るときは、この LICENSES\ も一緒に配ること

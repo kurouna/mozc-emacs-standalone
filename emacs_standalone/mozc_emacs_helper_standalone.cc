@@ -82,7 +82,8 @@ ABSL_FLAG(bool, suppress_stderr, false, "Discards all the output to stderr.");
 ABSL_FLAG(std::string, profile_dir, "",
           "Directory for the learning data, the user dictionary and the "
           "config, instead of %USERPROFILE%\\AppData\\LocalLow\\Mozc. "
-          "Must be an absolute path; created if missing.");
+          "Must be an absolute path; created if missing, but its parent "
+          "must exist.");
 
 namespace mozc::emacs {
 namespace {
@@ -204,6 +205,9 @@ void ProcessLoop(SessionHandler& handler) {
     switch (command.input().type()) {
       case commands::Input::CREATE_SESSION:
         if (const uint64_t id = CreateEngineSession(handler); id != 0) {
+          while (sessions.contains(next_session_id)) {
+            ++next_session_id;
+          }
           session_id = next_session_id++;
           sessions[session_id] = id;
         } else {
@@ -221,7 +225,14 @@ void ProcessLoop(SessionHandler& handler) {
       case commands::Input::SEND_KEY: {
         auto it = sessions.find(session_id);
         if (it == sessions.end()) {
-          ErrorExit(kErrSessionError, "Unknown session");
+          // Start a session for an id this helper does not know, as
+          // ClientPool::GetClient does, instead of ending the helper and
+          // every other session with it.
+          const uint64_t id = CreateEngineSession(handler);
+          if (id == 0) {
+            ErrorExit(kErrSessionError, "Session failed");
+          }
+          it = sessions.emplace(session_id, id).first;
         }
         command.mutable_input()->set_id(it->second);
         if (!Eval(handler, command)) {

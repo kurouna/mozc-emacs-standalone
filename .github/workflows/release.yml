@@ -50,12 +50,25 @@ jobs:
           if (-not (Test-Path (Join-Path $bin 'gcc.exe'))) { throw "gcc.exe not found in $bin" }
           "DEVKIT_BIN=$bin" >> $env:GITHUB_ENV
 
-      # abseil / protobuf take most of the first build.  Their versions are
-      # pinned in build.ps1, so key the cache on it.
+      # abseil / protobuf take most of the first build.  Key the cache on what
+      # decides them in build.ps1 (their pinned versions and the section that
+      # builds them), so that other edits to build.ps1 keep the cache.
+      - name: Cache key for abseil / protobuf
+        id: deps
+        run: |
+          $ps1 = Get-Content -Raw build.ps1
+          $pins = [regex]::Matches($ps1, '(?m)^\$(abseil|protobuf)\s*=.*$')
+          $section = [regex]::Match($ps1, '(?s)# ---- abseil / protobuf.*?(?=# ---- )')
+          if ($pins.Count -ne 2 -or -not $section.Success) { throw 'abseil / protobuf section not found in build.ps1' }
+          $text = (($pins | ForEach-Object Value) -join "`n") + "`n" + $section.Value
+          $sha = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($text))
+          $hash = ([BitConverter]::ToString($sha) -replace '-', '').Substring(0, 16).ToLower()
+          "key=deps-$env:W64DEVKIT_VERSION-$hash" >> $env:GITHUB_OUTPUT
+
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}\mozc-build\prefix
-          key: deps-${{ env.W64DEVKIT_VERSION }}-${{ hashFiles('build.ps1') }}
+          key: ${{ steps.deps.outputs.key }}
 
       - name: Build
         run: |
@@ -69,6 +82,8 @@ jobs:
           New-Item -ItemType Directory -Force $stage | Out-Null
           Copy-Item -Recurse dist\* $stage
           Copy-Item README.md, README.ja.md $stage
+          # The READMEs show the screenshots in docs\
+          Copy-Item -Recurse docs $stage
           $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
           Compress-Archive -Path $stage -DestinationPath $zip
           $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()

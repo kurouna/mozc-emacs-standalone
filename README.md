@@ -62,6 +62,7 @@ Get `mozc-emacs-standalone-<version>-win-x64.zip` from [Releases](https://github
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)). Included since v0.0.3 |
 | `LICENSES\` | License texts of what the exe contains. Keep them with the exe when you pass it on |
 | `README.md` / `README.ja.md` | This document |
+| `docs\` | Screenshots shown in the READMEs |
 
 Put `mozc.el` and `mozc_emacs_helper.exe` somewhere and set up Emacs as in
 [Use from Emacs](#use-from-emacs). To build it yourself, read on.
