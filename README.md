@@ -95,7 +95,7 @@ including abseil and protobuf.
 | `mozc_emacs_helper.exe` | The helper with the engine and dictionary inside. Depends only on Windows system DLLs |
 | `mozc.el` | Mozc's official `src/unix/emacs/mozc.el` of the same version, with only `-*- lexical-binding: nil -*-` added to the first line (silences Emacs 31's `Missing lexical-binding cookie` warning; behavior is unchanged) |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)) |
-| `mozc-context.el` | Makes the text before the point the conversion context ([below](#the-text-before-the-point-as-context)) |
+| `mozc-context.el` | Makes the text before the point the conversion context (experimental; [below](#the-text-before-the-point-as-context-experimental)) |
 | `LICENSES\` | License texts of what the exe contains. Pass them along with the exe |
 
 Keep the work directory (default `%TEMP%\mozc-build`) and later builds are incremental. You can
@@ -113,7 +113,7 @@ Point Emacs to where you put `mozc.el` and `mozc_emacs_helper.exe` (`~/.emacs.d/
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
 (require 'mozc-user-dict)   ; optional: edit the user dictionary
-(require 'mozc-context)     ; optional: the text before the point as the conversion context
+(require 'mozc-context)     ; optional, experimental: the text before the point as the conversion context
 ```
 
 `C-\` toggles it. While converting: Space converts and cycles candidates, Enter commits, F7 gives
@@ -122,17 +122,6 @@ katakana, and Right moves to the next segment. Dates (`kyou`), postal codes, cal
 
 It works the same in a terminal (`emacs -nw`), since `mozc.el` and the helper do not depend on
 the GUI; the candidate list is drawn in the buffer there too.
-
-### The text before the point as context
-
-Mozc converts with the words committed last as context (`kai` after 日本 becomes 海, `to` after
-東京 becomes 都). Only what Mozc committed counts, though, and it is dropped once the point moves,
-so there is no context in the middle of written text or when continuing a file you opened.
-
-With `mozc-context.el` loaded, the text before the point (up to 20 characters on the same line;
-see `mozc-context-length`) goes to the helper when a conversion starts, and its last words become
-the context. It leaves `mozc.el` itself as it is, and does nothing with a helper that does not take
-the text (such as the official `mozc_emacs_helper`).
 
 <p align="center">
   <img src="./docs/terminal-nw.png" width="560" alt="emacs -nw running in PowerShell in Windows Terminal: converting kisha no kisha ga kisha de kisha shita with the candidate list of the focused segment drawn in the buffer, and [あ] in the mode line">
@@ -175,6 +164,37 @@ the text (such as the official `mozc_emacs_helper`).
                       (tr-ime-openstatus-force-off)
                       (toggle-input-method))))))
   ```
+
+### The text before the point as context (experimental)
+
+Mozc converts with the words committed last as context (`kai` after 日本 becomes 海, `to` after
+東京 becomes 都). Only what Mozc committed counts, though. Moving the point with a key such as an
+arrow drops it, so there is no context in the middle of written text or when continuing a file you
+opened. Moving with a mouse click, on the other hand, keeps the context of the old place: commit
+日本, click somewhere else and type `kai`, and you get 海.
+
+With `mozc-context.el` loaded, the text before the point (up to 20 characters on the same line; set
+`mozc-context-length`, 0 turns it off) goes to the helper when you type a key that can start a
+conversion, and its last words become the context, also after a click. It leaves `mozc.el` itself as
+it is, and does nothing with a helper that does not take the text (such as the official
+`mozc_emacs_helper`).
+
+It is experimental and not loaded by default.
+
+- It helps in few places. Mozc uses context only for part-of-speech connections and some compounds
+  (海, 都, 府, 道 after a place name, and so on); on the 100 items with context in
+  [AJIMEE-Bench](https://github.com/azooKey/AJIMEE-Bench) it went from 45 to 47 correct, with no
+  regressions. It does not fix errors such as `nihenkou` after 日程 becoming 二変更
+- Only about the last 10 characters count (they are reverse-converted into segments with readings
+  and parts of speech)
+- After Latin text (such as `Emacs`), Mozc's handling of Latin words as proper nouns shows: `kai`
+  becomes 海
+- Mozc keeps committed numbers as their last digit and full-width alphanumerics as half-width, so
+  right after committing those, the context is rebuilt from the text instead of what Mozc kept
+- The first key of a conversion takes a few milliseconds more (under 30 ms) for the reverse
+  conversion
+
+How it was measured, and the results, are in [eval/README.ja.md](./eval/README.ja.md) (in Japanese).
 
 ### User dictionary
 

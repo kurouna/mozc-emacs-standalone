@@ -18,11 +18,16 @@
 ;;   (require 'mozc)
 ;;   (require 'mozc-context)
 ;;
-;; 渡すのは、未確定の文字列が無いときにキーを送る直前だけ。直前の文字列を
-;; 受け取れない helper（公式の mozc_emacs_helper など）には何も送らない。
+;; 渡すのは、未確定の文字列が無いときに、変換を始めうるキー（修飾キーの
+;; 無い、空白以外の文字）を送る直前だけ。直前の文字列を受け取れない
+;; helper（公式の mozc_emacs_helper など）には何も送らない。
+;;
+;; 実験的な機能で、既定では読み込まれない。Mozc が文脈を使う範囲は狭い
+;; （品詞のつながりと一部の複合語）ので、効く場面は限られる。
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'mozc)
 
 (defgroup mozc-context nil
@@ -44,10 +49,24 @@
   (mozc-protobuf-get mozc-config-protobuf 'set-context))
 
 (defun mozc-context--preceding-text ()
-  "カーソルの直前の、同じ行の `mozc-context-length' 文字まで。"
-  (buffer-substring-no-properties
-   (max (line-beginning-position) (- (point) mozc-context-length))
-   (point)))
+  "カーソルの直前の、同じ行の `mozc-context-length' 文字まで。
+生のバイト（eight-bit 文字）があれば、その後ろだけにする。helper へは
+UTF-8 の文字列として送るので、生のバイトは送れない。"
+  (let* ((text (buffer-substring-no-properties
+                (max (line-beginning-position) (- (point) mozc-context-length))
+                (point)))
+         (raw (cl-position-if (lambda (c) (eq (char-charset c) 'eight-bit))
+                              text :from-end t)))
+    (if raw
+        (substring text (1+ raw))
+      text)))
+
+(defun mozc-context--starts-composition-p (event)
+  "EVENT が変換を始めうるキー（修飾キーの無い、空白以外の文字）なら non-nil。"
+  (and (characterp event)
+       (null (event-modifiers event))
+       (> event ?\s)
+       (/= event ?\d)))
 
 (defun mozc-context--clear ()
   "このバッファのセッションに渡した直前の文字列を取り消す。
@@ -58,10 +77,12 @@ helper は文字列の無い SetContext を受けると、以後のキーに付�
     (mozc-session-execute-command 'SetContext))
   (setq mozc-context--sent nil))
 
-(defun mozc-context--send (&rest _)
-  "未確定の文字列が無ければ、カーソルの直前の文字列を helper に渡す。
-`mozc-send-key-event' の前に呼ばれる。"
-  (unless mozc-preedit-in-session-flag
+(defun mozc-context--send (event &rest _)
+  "未確定の文字列が無く、EVENT で変換が始まりうるなら、直前の文字列を渡す。
+`mozc-send-key-event' の前に呼ばれる。Mozc が直前の文字列を読むのは変換を
+始めるキーのときだけなので、矢印などのキーでは送らない。"
+  (unless (or mozc-preedit-in-session-flag
+              (not (mozc-context--starts-composition-p event)))
     (if (<= mozc-context-length 0)
         (mozc-context--clear)
       (when (and (mozc-session-create) (mozc-context--supported-p))
