@@ -163,9 +163,26 @@ if (-not ((Test-Path $patchStamp) -and
   }
   [System.IO.File]::WriteAllText($patchStamp, (Get-PatchState))
 }
-# 追加パッケージは毎回入れ直す（Copy-Item は更新時刻を保つので、変えていないファイルは再ビルドされない）
-Invoke-Native git -C $mozcDir clean -q -fd -- src/emacs_standalone
-Copy-Item -Recurse -Force (Join-Path $PSScriptRoot 'emacs_standalone') (Join-Path $mozcDir 'src')
+# 追加パッケージは、中身が違うファイルだけ書いて更新時刻を今にする。元の更新時刻のまま
+# コピーすると、作業ディレクトリ側で書き換えてビルドしたあとに古い時刻のファイルで戻すことに
+# なり、ninja が再ビルドしない
+$pkgSrc = Join-Path $PSScriptRoot 'emacs_standalone'
+$pkgDst = Join-Path $mozcDir 'src\emacs_standalone'
+New-Item -ItemType Directory -Force $pkgDst | Out-Null
+foreach ($f in Get-ChildItem -Recurse -File $pkgDst) {
+  if (-not (Test-Path -LiteralPath (Join-Path $pkgSrc $f.FullName.Substring($pkgDst.Length + 1)))) {
+    Remove-Item -Force -LiteralPath $f.FullName
+  }
+}
+foreach ($f in Get-ChildItem -Recurse -File $pkgSrc) {
+  $dst = Join-Path $pkgDst $f.FullName.Substring($pkgSrc.Length + 1)
+  if (-not (Test-Path -LiteralPath $dst) -or
+      (Get-FileHash -LiteralPath $dst).Hash -ne (Get-FileHash -LiteralPath $f.FullName).Hash) {
+    New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+    Copy-Item -Force -LiteralPath $f.FullName $dst
+    (Get-Item -LiteralPath $dst).LastWriteTime = Get-Date
+  }
+}
 
 # ---- 辞書データの元になる外部ファイル ----------------------------------------
 foreach ($x in $externals) {
