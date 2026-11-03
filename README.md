@@ -188,8 +188,9 @@ helper so that it reloads the dictionary (`mozc.el` notices the restart and recr
   are optional). Files exported by Microsoft IME as text (UTF-16, lines starting with `!`) work as
   they are. Part-of-speech names of Microsoft IME, ATOK and others (さ変名詞, 一段動詞,
   形容動詞...) are mapped to Mozc's with the same table as Mozc's dictionary tool. Words whose
-  part of speech has no Mozc counterpart (e.g. classical two-row verbs) are skipped, and unknown
-  names become nouns
+  part of speech has no Mozc counterpart (e.g. classical two-row verbs) would not convert in
+  their inflected forms, so they are skipped as Mozc's dictionary tool does (the message after
+  the import tells how many and which parts of speech). Unknown names become nouns
 - The file is the protobuf message as is. Fields this code does not know are written back
   unchanged, so new fields in later Mozc versions survive
 
