@@ -178,6 +178,8 @@ class Helper:
         self.seq = 0
         greeting = to_obj(self._read())
         self.version = greeting.get('version')
+        # 直前のテキストを受け取れる helper は config に set-context を載せる。
+        self.set_context = greeting.get('config', {}).get('set-context') == 't'
         self.session = None
 
     def close(self):
@@ -227,6 +229,15 @@ class Helper:
     def key(self, *keys):
         return self.call('SendKey', self.session, *keys).get('output', {})
 
+    def context(self, text):
+        """カーソルの直前のテキストを渡す（mozc-context.el と同じ）。
+
+        受け取れない helper には送らず False を返す。"""
+        if not self.set_context:
+            return False
+        self.call('SetContext', self.session, quote(text))
+        return True
+
 
 def quote(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
@@ -236,13 +247,18 @@ def kata_to_hira(s):
     return ''.join(chr(ord(c) - 0x60) if 'ァ' <= c <= 'ヶ' else c for c in s)
 
 
-def convert(helper, reading):
+def convert(helper, reading, timing=None):
     """読みを入れてスペースで変換し、各文節の上位候補と所要時間を返す。
 
     返り値: (segments, latency_ms)。segments は
-    [{'key': 読み, 'value': 1 位, 'candidates': [{'value', 'segments'}...]}]"""
+    [{'key': 読み, 'value': 1 位, 'candidates': [{'value', 'segments'}...]}]
+    timing に dict を渡すと、最初のキー（文脈を組み立てる）の所要時間を
+    'first_key_ms' に入れる。"""
     # mozc.el のかな入力と同じく、キーコードに入力文字列を添えて送る。
+    t0 = time.perf_counter()
     helper.key(97, quote(reading))
+    if timing is not None:
+        timing['first_key_ms'] = (time.perf_counter() - t0) * 1000
     t0 = time.perf_counter()
     out = helper.key('space')
     latency = (time.perf_counter() - t0) * 1000
@@ -369,6 +385,7 @@ def load_data(path):
                 'id': f"{suite}:{d.get('index', n)}", 'kind': 'sentence',
                 'reading': kata_to_hira(d['input']), 'expected': expected,
                 'has_context': bool(d.get('context_text')),
+                'context': d.get('context_text') or '',
             })
         return items, skipped
     for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
@@ -408,12 +425,15 @@ def judge_rule(item, top, segs):
     return ok if command == 'Conversion Expected' else not ok
 
 
-def evaluate(helper, item):
-    segs, latency = convert(helper, item['reading'])
+def evaluate(helper, item, send_context=False):
+    sent = send_context and helper.context(item.get('context', ''))
+    timing = {}
+    segs, latency = convert(helper, item['reading'], timing)
     top = ''.join(s['value'] for s in segs)
     r = {'id': item['id'], 'kind': item['kind'], 'reading': item['reading'],
          'expected': item['expected'], 'output': top,
-         'segments': [s['value'] for s in segs], 'latency_ms': latency}
+         'segments': [s['value'] for s in segs], 'latency_ms': latency,
+         'first_key_ms': timing['first_key_ms'], 'context_sent': sent}
     if item['kind'] == 'rule':
         r['command'] = item['command']
         r['ok'] = judge_rule(item, top, segs)
@@ -459,12 +479,64 @@ def summarize(results):
         if errors:
             line += f', エラー {errors}'
         lines.append(line)
-    lat = sorted(r['latency_ms'] for r in results if 'latency_ms' in r)
-    if lat:
-        p95 = lat[min(len(lat) - 1, int(len(lat) * 0.95))]
-        lines.append(f'変換時間: 中央値 {statistics.median(lat):.1f}ms'
-                     f' / 95% {p95:.1f}ms / 最大 {lat[-1]:.1f}ms')
+    for key, name in (('latency_ms', '変換時間'),
+                      ('first_key_ms', '最初のキーの処理時間')):
+        lat = sorted(r[key] for r in results if key in r)
+        if lat:
+            p95 = lat[min(len(lat) - 1, int(len(lat) * 0.95))]
+            lines.append(f'{name}: 中央値 {statistics.median(lat):.1f}ms'
+                         f' / 95% {p95:.1f}ms / 最大 {lat[-1]:.1f}ms')
+    sent = sum(bool(r.get('context_sent')) for r in results)
+    if sent:
+        lines.append(f'直前のテキストを渡した項目: {sent}')
     return '\n'.join(lines)
+
+
+def cmd_move(args):
+    """前の項目を確定してからカーソルを動かし、別の場所で変換する。
+
+    確定した文節は次の変換の文脈になる。カーソルを動かしたあとも残って
+    いると、関係のない文脈で変換することになる。各項目の前に、ひとつ前の
+    項目を 1 位のまま確定し、カーソル移動のキー（--move-key）を送る。"""
+    items = []
+    for path in args.data:
+        its, _ = load_data(path)
+        items += its
+    if args.limit:
+        items = items[:args.limit]
+    exe = Path(args.helper)
+    helper = Helper(exe, timeout=args.timeout, args=args.helper_arg)
+    results = []
+    try:
+        helper.create_session()
+        for n, item in enumerate(items):
+            helper.renew_session()
+            helper.key(97, quote(items[n - 1]['reading']))
+            helper.key('space')
+            helper.key('enter')
+            moved = helper.key(args.move_key)
+            r = evaluate(helper, item, args.send_context)
+            r['move_consumed'] = moved.get('consumed') == 't'
+            results.append(r)
+        version = helper.version
+    finally:
+        helper.close()
+    print(f'helper: {exe} {" ".join(args.helper_arg)} ({version})')
+    print(summarize(results))
+    consumed = sum(r['move_consumed'] for r in results)
+    if consumed:
+        print(f'注意: {args.move_key} を Mozc が処理した項目 {consumed}')
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(
+            {'meta': {'helper': str(exe.resolve()),
+                      'helper_args': args.helper_arg,
+                      'helper_version': version, 'move_key': args.move_key,
+                      'data': [str(Path(p).resolve()) for p in args.data],
+                      'time': time.strftime('%Y-%m-%dT%H:%M:%S')},
+             'results': results}, ensure_ascii=False, indent=1),
+            encoding='utf-8')
 
 
 def cmd_run(args):
@@ -482,7 +554,7 @@ def cmd_run(args):
     try:
         for n, item in enumerate(items, 1):
             try:
-                results.append(evaluate(helper, item))
+                results.append(evaluate(helper, item, args.send_context))
             except HelperError as e:
                 results.append({'id': item['id'], 'kind': item['kind'],
                                 'reading': item['reading'], 'error': str(e),
@@ -682,9 +754,24 @@ def main():
     l.add_argument('--show-errors', action='store_true',
                    help='学習の前後で結果が変わった項目を表示する')
     l.set_defaults(func=cmd_learn)
-    for sp in (r, l):
+    m = sub.add_parser('move', help='確定してからカーソルを動かして変換する')
+    m.add_argument('--helper', required=True, help='mozc_emacs_helper.exe')
+    m.add_argument('--data', required=True, action='append',
+                   help='評価データ（複数指定可）')
+    m.add_argument('--out', help='結果の JSON')
+    m.add_argument('--limit', type=int, help='先頭から N 件だけ')
+    m.add_argument('--timeout', type=float, default=10.0,
+                   help='helper の応答待ち（秒）')
+    m.add_argument('--move-key', default='left',
+                   help='カーソル移動として送るキー（既定: left）')
+    m.set_defaults(func=cmd_move)
+    for sp in (r, m):
+        sp.add_argument('--send-context', action='store_true',
+                        help='直前のテキスト（AJIMEE-Bench の context_text）を'
+                             'helper に渡す（受け取れる helper だけ）')
+    for sp in (r, l, m):
         sp.add_argument('--helper-arg', action='append', default=[],
-                        help='helper に渡す引数（例: --helper-arg=--history_conversion）')
+                        help='helper に渡す引数（例: --helper-arg=--foo）')
     c = sub.add_parser('compare', help='2 つの結果を比べる')
     c.add_argument('base')
     c.add_argument('new')

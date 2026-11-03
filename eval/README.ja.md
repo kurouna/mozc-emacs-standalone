@@ -42,6 +42,18 @@ python eval/mozc_eval.py learn --helper dist/mozc_emacs_helper.exe --data eval/d
 確定のたびにセッションを作り直すので、直前に確定した文節は次の変換の文脈になりません。
 helper に渡す引数は `--helper-arg=...` で足せます（`run` も同じ）。
 
+## 直前の文字列（文脈）
+
+```
+python eval/mozc_eval.py run --helper dist/mozc_emacs_helper.exe --send-context --data eval/data/evaluation_items.json
+python eval/mozc_eval.py move --helper dist/mozc_emacs_helper.exe --data eval/data/evaluation_items.json
+```
+
+- `--send-context`：AJIMEE-Bench の `context_text` を、`mozc-context.el` と同じく `SetContext` で
+  helper に渡してから変換します（文脈の無い項目は空文字列）。受け取れない helper には送りません
+- `move`：各項目の前に、ひとつ前の項目を 1 位のまま確定し、カーソル移動のキー（`--move-key`、
+  既定は `left`）を送ってから変換します。カーソルを動かしたあとに、前の場所の文脈が残るかを見る
+
 ## 集計の見方
 
 - **正解**：規則の項目は規則を満たした数、文の項目は 1 位（スペース 1 回の結果）が正解と一致した数

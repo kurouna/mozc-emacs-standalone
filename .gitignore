@@ -4,3 +4,6 @@
 # eval/mozc_eval.py の結果と、取得した評価データ（再配布しない）
 /eval/results/
 /eval/data/
+
+# Python のキャッシュ
+__pycache__/
