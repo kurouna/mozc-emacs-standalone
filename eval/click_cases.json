@@ -1,0 +1,14 @@
+[
+ {"index": "x1", "context_text": "", "input": "にほん", "expected_output": ["日本"]},
+ {"index": "y1", "context_text": "第３", "input": "かい", "expected_output": ["回"]},
+ {"index": "x2", "context_text": "", "input": "とうきょう", "expected_output": ["東京"]},
+ {"index": "y2", "context_text": "私", "input": "と", "expected_output": ["と"]},
+ {"index": "x3", "context_text": "", "input": "ほっかい", "expected_output": ["北海"]},
+ {"index": "y3", "context_text": "そうですか、", "input": "どう", "expected_output": ["どう"]},
+ {"index": "x4", "context_text": "", "input": "おおさか", "expected_output": ["大阪"]},
+ {"index": "y4", "context_text": "正と", "input": "ふ", "expected_output": ["負"]},
+ {"index": "x5", "context_text": "", "input": "にほん", "expected_output": ["日本"]},
+ {"index": "y5", "context_text": "今", "input": "かい", "expected_output": ["回"]},
+ {"index": "x6", "context_text": "", "input": "とうきょう", "expected_output": ["東京"]},
+ {"index": "y6", "context_text": "猫", "input": "と", "expected_output": ["と"]}
+]

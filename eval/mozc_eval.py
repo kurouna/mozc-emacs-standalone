@@ -514,7 +514,9 @@ def cmd_move(args):
             helper.key(97, quote(items[n - 1]['reading']))
             helper.key('space')
             helper.key('enter')
-            moved = helper.key(args.move_key)
+            # none はマウスのクリックで動いた場合。mozc.el はクリックを helper に
+            # 送らないので、Mozc には何も届かない。
+            moved = helper.key(args.move_key) if args.move_key != 'none' else {}
             r = evaluate(helper, item, args.send_context)
             r['move_consumed'] = moved.get('consumed') == 't'
             results.append(r)
@@ -763,7 +765,8 @@ def main():
     m.add_argument('--timeout', type=float, default=10.0,
                    help='helper の応答待ち（秒）')
     m.add_argument('--move-key', default='left',
-                   help='カーソル移動として送るキー（既定: left）')
+                   help='カーソル移動として送るキー（既定: left）。'
+                        'none ならキーを送らない（マウスのクリックで動いた場合）')
     m.set_defaults(func=cmd_move)
     for sp in (r, m):
         sp.add_argument('--send-context', action='store_true',

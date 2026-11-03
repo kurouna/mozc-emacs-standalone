@@ -52,7 +52,25 @@ python eval/mozc_eval.py move --helper dist/mozc_emacs_helper.exe --data eval/da
 - `--send-context`：AJIMEE-Bench の `context_text` を、`mozc-context.el` と同じく `SetContext` で
   helper に渡してから変換します（文脈の無い項目は空文字列）。受け取れない helper には送りません
 - `move`：各項目の前に、ひとつ前の項目を 1 位のまま確定し、カーソル移動のキー（`--move-key`、
-  既定は `left`）を送ってから変換します。カーソルを動かしたあとに、前の場所の文脈が残るかを見る
+  既定は `left`）を送ってから変換します。カーソルを動かしたあとに、前の場所の文脈が残るかを見る。
+  `--move-key none` ならキーを送りません（mozc.el が helper に送らないマウスのクリックで動いた場合）
+
+このリポジトリにある、文脈を見るための小さなデータ（AJIMEE-Bench と同じ形式）:
+
+| ファイル | 内容 |
+|:---|:---|
+| `eval/context_cases.json` | 30 問。文脈が効くはずのもの（地名＋海・都など、助詞）と、文脈で悪くならないかを見るもの（句読点・括弧のあと、コードのコメント、英数字の混在、URL、長い行、記号だけ、空） |
+| `eval/click_cases.json` | `move --move-key none` 用。前の項目で「日本」「東京」などを確定し、別の文脈の場所で「かい」「と」などを変換する 6 組（y で始まる項目を見る） |
+
+`mozc-context.el` を入れた helper（patches/0002 と SetContext）での結果（変更前 → 文脈あり）:
+
+| データ | 変更前 | 文脈あり |
+|:---|:---|:---|
+| AJIMEE-Bench 200 問（`run --send-context`） | 102（文脈つき 45/100） | 104（文脈つき 47/100）、悪化 0 |
+| `context_cases.json` 30 問（`run --send-context`） | 24 | 28、悪化 0 |
+| `click_cases.json` の y 6 問（`move --move-key none --send-context`） | 0（前の場所の文脈で「海」「都」など） | 6 |
+| Mozc の品質回帰テスト 613 問 | 437 | 437、変化なし |
+| 最初のキーの処理時間（中央値 / 最大） | 2.2ms / 8.5ms | 8.2ms / 26.9ms |
 
 ## 集計の見方
 
