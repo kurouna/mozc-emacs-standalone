@@ -166,12 +166,13 @@ class HelperError(Exception):
 
 
 class Helper:
-    def __init__(self, exe, timeout=10.0):
+    def __init__(self, exe, timeout=10.0, args=()):
         self.exe = str(exe)
         self.timeout = timeout
         self.profile = tempfile.mkdtemp(prefix='mozc-eval-')
         self.proc = subprocess.Popen(
-            [self.exe, '--suppress_stderr', '--profile_dir', self.profile],
+            [self.exe, '--suppress_stderr', '--profile_dir', self.profile,
+             *args],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL)
         self.seq = 0
@@ -217,6 +218,11 @@ class Helper:
 
     def create_session(self):
         self.session = self.call('CreateSession')['emacs-session-id']
+
+    def renew_session(self):
+        """直前に確定した文節（変換の文脈）を持たない新しいセッションにする。"""
+        self.call('DeleteSession', self.session)
+        self.create_session()
 
     def key(self, *keys):
         return self.call('SendKey', self.session, *keys).get('output', {})
@@ -282,6 +288,51 @@ def get_rank(value, segs, i=0):
             continue
         return rank + rest
     return -1
+
+
+def find_path(value, segs, i=0):
+    """各文節で何番目の候補を選べば value になるか。届かなければ None。
+
+    キー操作（スペースで次の候補、→で次の文節）で選べるよう、1 文節だけの
+    候補に限る。"""
+    if i >= len(segs):
+        return [] if value == '' else None
+    for n, cand in enumerate(segs[i]['candidates']):
+        v = cand['value']
+        if cand['segments'] != 1 or not v or not value.startswith(v):
+            continue
+        rest = find_path(value[len(v):], segs, i + 1)
+        if rest is not None:
+            return [n] + rest
+    return None
+
+
+def commit_as(helper, reading, value):
+    """読みを変換し、候補を選び直して value として確定する（学習させる）。
+
+    確定できたら True。区切り直しが要るなど、選べないときは取り消して False。"""
+    segs, _ = convert(helper, reading)
+    path = find_path(value, segs)
+    if path is None:
+        return False
+    helper.key(97, quote(reading))
+    out = helper.key('space')
+    for i, n in enumerate(path):
+        if i > 0:
+            out = helper.key('right')
+        for _ in range(n):
+            out = helper.key('space')
+    chosen = ''.join(s.get('value', '')
+                     for s in out.get('preedit', {}).get('segment', []))
+    if chosen != value:
+        for _ in range(4):
+            if 'preedit' not in helper.key('escape'):
+                break
+        return False
+    helper.key('enter')
+    # 確定した文節が次の変換の文脈にならないよう、セッションを作り直す。
+    helper.renew_session()
+    return True
 
 
 def edit_distance(a, b):
@@ -425,7 +476,7 @@ def cmd_run(args):
     if args.limit:
         items = items[:args.limit]
     exe = Path(args.helper)
-    helper = Helper(exe, timeout=args.timeout)
+    helper = Helper(exe, timeout=args.timeout, args=args.helper_arg)
     helper.create_session()
     results = []
     try:
@@ -437,7 +488,7 @@ def cmd_run(args):
                                 'reading': item['reading'], 'error': str(e),
                                 'ok': False})
                 helper.close()
-                helper = Helper(exe, timeout=args.timeout)
+                helper = Helper(exe, timeout=args.timeout, args=args.helper_arg)
                 helper.create_session()
             if n % 50 == 0:
                 print(f'{n}/{len(items)}', file=sys.stderr)
@@ -466,6 +517,115 @@ def cmd_run(args):
             if not r['ok']:
                 print(f"NG {r['id']}\t{r['reading']}\t{r.get('output', r.get('error'))}"
                       f"\t期待: {' | '.join(r.get('expected', []))}")
+
+
+def cmd_learn(args):
+    """学習させてから変換し直し、学習の効果と副作用を測る。
+
+    文の項目を交互に「学習用」と「対照用」に分け、次の順に測る。
+      1. 学習前: 学習用の項目の読み、その前後に別の読みを付けた入力、対照用の項目
+      2. 学習: 学習用の項目を正解の候補を選んで確定する（1 項目 1 回）
+      3. 学習後: 1 と同じ入力
+    前後に別の読みを付けた入力は、文節の区切りが学習時と変わっても学習が
+    効くかを見るもの（正解が出力の末尾・先頭にそのまま含まれれば正解）。"""
+    items = []
+    for path in args.data:
+        its, _ = load_data(path)
+        items += [it for it in its if it['kind'] == 'sentence']
+    if args.limit:
+        items = items[:args.limit]
+    train, hold = items[0::2], items[1::2]
+    fillers = [it['reading'] for it in hold]
+
+    def tests():
+        for n, it in enumerate(train):
+            filler = fillers[n % len(fillers)]
+            yield ('same', it, it['reading'], lambda o, e: o in e)
+            yield ('after', it, filler + it['reading'],
+                   lambda o, e: any(o.endswith(x) for x in e))
+            yield ('before', it, it['reading'] + filler,
+                   lambda o, e: any(o.startswith(x) for x in e))
+        for it in hold:
+            yield ('holdout', it, it['reading'], lambda o, e: o in e)
+
+    def measure(helper, learned):
+        res = {}
+        for kind, it, reading, ok in tests():
+            if kind != 'holdout' and it['id'] not in learned:
+                continue
+            segs, latency = convert(helper, reading)
+            out = ''.join(s['value'] for s in segs)
+            res[(kind, it['id'])] = {'output': out, 'latency_ms': latency,
+                                     'ok': ok(out, it['expected'])}
+        return res
+
+    exe = Path(args.helper)
+    helper = Helper(exe, timeout=args.timeout, args=args.helper_arg)
+    try:
+        helper.create_session()
+        # 学習できる項目（正解を候補から選べるもの）を先に決める。
+        learned = {}
+        for it in train:
+            segs, _ = convert(helper, it['reading'])
+            for e in it['expected']:
+                if find_path(e, segs) is not None:
+                    learned[it['id']] = e
+                    break
+        before = measure(helper, learned)
+        failed = 0
+        for it in train:
+            if it['id'] in learned and not commit_as(
+                    helper, it['reading'], learned[it['id']]):
+                failed += 1
+                del learned[it['id']]
+        after = measure(helper, learned)
+        version = helper.version
+    finally:
+        helper.close()
+
+    names = {'same': '同じ読みで再変換', 'after': '前に別の読みを付けて変換',
+             'before': '後ろに別の読みを付けて変換',
+             'holdout': '学習していない項目（副作用）'}
+    lines = [f'helper: {exe} {" ".join(args.helper_arg)} ({version})',
+             f'学習: {len(learned)}/{len(train)} 項目を確定'
+             f'（候補から選べず学習できなかった {len(train) - len(learned)}'
+             f'{f"、うち確定に失敗 {failed}" if failed else ""}）']
+    rows = []
+    for kind in ('same', 'after', 'before', 'holdout'):
+        keys = [k for k in after if k[0] == kind]
+        b = sum(before[k]['ok'] for k in keys if k in before)
+        a = sum(after[k]['ok'] for k in keys)
+        gained = sum(after[k]['ok'] and not before[k]['ok'] for k in keys)
+        lost = sum(before[k]['ok'] and not after[k]['ok'] for k in keys)
+        lines.append(f'{names[kind]}: {b}/{len(keys)} → {a}/{len(keys)}'
+                     f'（改善 {gained}、悪化 {lost}）')
+        for k in keys:
+            rows.append({'test': kind, 'id': k[1],
+                         'before': before[k], 'after': after[k]})
+    lat = sorted(v['latency_ms'] for v in after.values())
+    if lat:
+        lines.append(f'学習後の変換時間: 中央値 {statistics.median(lat):.1f}ms'
+                     f' / 最大 {lat[-1]:.1f}ms')
+    print('\n'.join(lines))
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(
+            {'meta': {'helper': str(exe.resolve()),
+                      'helper_args': args.helper_arg,
+                      'helper_version': version,
+                      'data': [str(Path(p).resolve()) for p in args.data],
+                      'learned': learned,
+                      'time': time.strftime('%Y-%m-%dT%H:%M:%S')},
+             'summary': lines, 'results': rows},
+            ensure_ascii=False, indent=1), encoding='utf-8')
+    if args.show_errors:
+        for r in rows:
+            if r['before']['ok'] != r['after']['ok']:
+                mark = '改善' if r['after']['ok'] else '悪化'
+                print(f"{mark} {r['test']} {r['id']}\n"
+                      f"  前: {r['before']['output']}\n"
+                      f"  後: {r['after']['output']}")
 
 
 def cmd_compare(args):
@@ -511,6 +671,20 @@ def main():
     r.add_argument('--show-errors', action='store_true',
                    help='不正解の項目を表示する')
     r.set_defaults(func=cmd_run)
+    l = sub.add_parser('learn', help='学習させてから変換し直す')
+    l.add_argument('--helper', required=True, help='mozc_emacs_helper.exe')
+    l.add_argument('--data', required=True, action='append',
+                   help='評価データ（文の項目だけを使う。複数指定可）')
+    l.add_argument('--out', help='結果の JSON')
+    l.add_argument('--limit', type=int, help='先頭から N 件だけ')
+    l.add_argument('--timeout', type=float, default=10.0,
+                   help='helper の応答待ち（秒）')
+    l.add_argument('--show-errors', action='store_true',
+                   help='学習の前後で結果が変わった項目を表示する')
+    l.set_defaults(func=cmd_learn)
+    for sp in (r, l):
+        sp.add_argument('--helper-arg', action='append', default=[],
+                        help='helper に渡す引数（例: --helper-arg=--history_conversion）')
     c = sub.add_parser('compare', help='2 つの結果を比べる')
     c.add_argument('base')
     c.add_argument('new')
