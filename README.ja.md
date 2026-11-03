@@ -259,7 +259,7 @@ helper で手を入れているのは次の 5 点です。
   止められるので、確定したとき（1 分に 1 回まで）と、終わるとき（Ctrl-Break / Ctrl-Close /
   エラー終了）に保存しています
 - `mozc-context.el` が送る `(EVENT_ID SetContext SESSION_ID "直前の文字列")` を受け付け、次の
-  キーから Mozc の `preceding_text` として渡します。受け付けることは挨拶の `config` に
+  キーから Mozc の `preceding_text` として渡します（文字列を省くと渡すのをやめます）。受け付けることは挨拶の `config` に
   `(set-context . t)` を載せて知らせます。Mozc は直前の文字列の末尾が数字か英字のときしか文脈に
   しないので、それ以外は末尾 10 文字を逆変換して、読みと品詞のついた文節にするパッチを当てています
 

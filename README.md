@@ -259,7 +259,8 @@ The helper adds five things to the official one:
   so it saves on commits (at most once a minute) and when it ends (Ctrl-Break, Ctrl-Close or an
   error exit)
 - It accepts `(EVENT_ID SetContext SESSION_ID "text before the point")` from `mozc-context.el`
-  and passes the text to Mozc as `preceding_text` with the following keys, and tells it accepts
+  and passes the text to Mozc as `preceding_text` with the following keys (without the text, it
+  stops passing any), and tells it accepts
   this with `(set-context . t)` in the `config` of its greeting. Mozc makes context only of a
   trailing number or Latin word, so a patch reverse-converts the last 10 characters of any other
   text into segments with readings and parts of speech

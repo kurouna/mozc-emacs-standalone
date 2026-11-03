@@ -1,8 +1,8 @@
 diff --git a/src/converter/converter.cc b/src/converter/converter.cc
-index d4e5654..dcff528 100644
+index d4e5654..c0a431d 100644
 --- a/src/converter/converter.cc
 +++ b/src/converter/converter.cc
-@@ -403,7 +403,66 @@ bool Converter::DeleteCandidateFromHistory(const Segments& segments,
+@@ -403,7 +403,70 @@ bool Converter::DeleteCandidateFromHistory(const Segments& segments,
  bool Converter::ReconstructHistory(
      Segments* segments, const absl::string_view preceding_text) const {
    segments->Clear();
@@ -45,7 +45,11 @@ index d4e5654..dcff528 100644
 +  }
 +  for (size_t i = begin; i < size; ++i) {
 +    const Segment& rev = reverse.conversion_segment(i);
-+    if (rev.candidates_size() == 0 || rev.candidate(0).value.empty()) {
++    // A text of digits and math symbols only ("ー", "（１）") comes back as
++    // a normalized math expression without parts of speech; it makes no
++    // context.
++    if (rev.candidates_size() == 0 || rev.candidate(0).value.empty() ||
++        (rev.candidate(0).lid == 0 && rev.candidate(0).rid == 0)) {
 +      segments->Clear();
 +      return false;
 +    }

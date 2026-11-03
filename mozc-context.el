@@ -31,9 +31,13 @@
 
 (defcustom mozc-context-length 20
   "Mozc に渡す、カーソルの直前の文字数の上限。
-同じ行の中だけを渡す。0 なら何も渡さない（文脈を使わない）。"
+同じ行の中だけを渡す。0 なら何も渡さず、それまでに渡した文字列も
+次のキーで取り消す（Mozc が自分で確定したものだけを文脈にする）。"
   :type 'integer
   :group 'mozc-context)
+
+(defvar-local mozc-context--sent nil
+  "このバッファのセッションに直前の文字列を渡したなら non-nil。")
 
 (defun mozc-context--supported-p ()
   "helper が直前の文字列を受け取れるなら non-nil。"
@@ -45,21 +49,34 @@
    (max (line-beginning-position) (- (point) mozc-context-length))
    (point)))
 
+(defun mozc-context--clear ()
+  "このバッファのセッションに渡した直前の文字列を取り消す。
+helper は文字列の無い SetContext を受けると、以後のキーに付けるのをやめる。"
+  (when (and mozc-context--sent mozc-session-id
+             ;; helper が再起動していれば、渡した文字列はもう無い。
+             (eq mozc-session-process (mozc-helper-process)))
+    (mozc-session-execute-command 'SetContext))
+  (setq mozc-context--sent nil))
+
 (defun mozc-context--send (&rest _)
   "未確定の文字列が無ければ、カーソルの直前の文字列を helper に渡す。
 `mozc-send-key-event' の前に呼ばれる。"
-  (when (and (> mozc-context-length 0)
-             (not mozc-preedit-in-session-flag)
-             (mozc-session-create)
-             (mozc-context--supported-p))
-    (mozc-session-execute-command 'SetContext
-                                  (mozc-context--preceding-text))))
+  (unless mozc-preedit-in-session-flag
+    (if (<= mozc-context-length 0)
+        (mozc-context--clear)
+      (when (and (mozc-session-create) (mozc-context--supported-p))
+        (mozc-session-execute-command 'SetContext
+                                      (mozc-context--preceding-text))
+        (setq mozc-context--sent t)))))
 
 (advice-add 'mozc-send-key-event :before #'mozc-context--send)
 
 (defun mozc-context-unload-function ()
-  "`unload-feature' で advice を外す。"
+  "`unload-feature' で advice を外し、各バッファで渡した文字列を取り消す。"
   (advice-remove 'mozc-send-key-event #'mozc-context--send)
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (mozc-context--clear)))
   nil)
 
 (provide 'mozc-context)

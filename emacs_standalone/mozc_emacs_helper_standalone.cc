@@ -39,6 +39,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -172,24 +173,27 @@ void PrintGreetingMessage() {
   fflush(stdout);
 }
 
-// Parses (EVENT_ID SetContext SESSION_ID "TEXT"), which mozc-context.el sends
-// with the text before the point.  Returns false for any other command, which
-// ParseInputLine handles.
+// Parses (EVENT_ID SetContext SESSION_ID ["TEXT"]), which mozc-context.el
+// sends with the text before the point, or without it to stop passing any.
+// Sets `text` to nullopt for the latter.  Returns false for any other command,
+// which ParseInputLine handles.
 bool ParseSetContext(absl::string_view line, uint32_t* event_id,
-                     uint32_t* session_id, std::string* text) {
+                     uint32_t* session_id, std::optional<std::string>* text) {
   std::vector<std::string> tokens;
   if (!TokenizeSExpr(line, &tokens) || tokens.size() < 3 ||
       tokens[2] != "SetContext") {
     return false;
   }
-  if (tokens.size() != 6 || tokens.front() != "(" || tokens.back() != ")") {
+  if ((tokens.size() != 5 && tokens.size() != 6) || tokens.front() != "(" ||
+      tokens.back() != ")") {
     ErrorExit(kErrWrongNumberOfArguments, "Wrong number of arguments");
   }
   if (!absl::SimpleAtoi(tokens[1], event_id) ||
       !absl::SimpleAtoi(tokens[3], session_id)) {
     ErrorExit(kErrWrongTypeArgument, "Event ID or session ID is not an integer");
   }
-  if (!UnquoteString(tokens[4], text)) {
+  text->reset();
+  if (tokens.size() == 6 && !UnquoteString(tokens[4], &text->emplace())) {
     ErrorExit(kErrWrongTypeArgument, "Wrong string literal");
   }
   return true;
@@ -228,9 +232,15 @@ void ProcessLoop(SessionHandler& handler) {
     uint32_t event_id = 0;
     uint32_t session_id = 0;
 
-    if (std::string text;
+    if (std::optional<std::string> text;
         ParseSetContext(line, &event_id, &session_id, &text)) {
-      contexts[session_id] = std::move(text);
+      // An empty text is not the same as none: it tells Mozc that the point
+      // is at the beginning of a line, where Mozc drops its history.
+      if (text.has_value()) {
+        contexts[session_id] = *std::move(text);
+      } else {
+        contexts.erase(session_id);
+      }
       absl::FPrintF(
           stdout, "((emacs-event-id . %u)(emacs-session-id . %u)(output . ()))\n",
           event_id, session_id);
