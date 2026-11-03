@@ -95,6 +95,7 @@ cd mozc-emacs-standalone
 | `mozc_emacs_helper.exe` | エンジンと辞書を内蔵した helper。Windows 標準の DLL にしか依存しない |
 | `mozc.el` | 同じ版の Mozc 公式 `src/unix/emacs/mozc.el`。1 行目に `-*- lexical-binding: nil -*-` だけ足してある（Emacs 31 の `Missing lexical-binding cookie` 警告対策。動作は変わらない） |
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（[下記](#ユーザー辞書)） |
+| `mozc-context.el` | カーソルの直前の文字列を変換の文脈にする（[下記](#直前の文字列を文脈にする)） |
 | `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
 
 作業ディレクトリ（既定は `%TEMP%\mozc-build`）を残しておけば、2 回目以降は
@@ -114,6 +115,7 @@ exe は `mozc_emacs_helper.exe.old` に退避して差し替えます（Emacs �
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
 (require 'mozc-user-dict)   ; 任意: ユーザー辞書の編集
+(require 'mozc-context)     ; 任意: カーソルの直前の文字列を変換の文脈にする
 ```
 
 これで `C-\` で ON/OFF できます。変換中はスペースで変換・候補送り、Enter で確定、
@@ -122,6 +124,17 @@ F7 でカタカナ、→ で次の文節です。日付（「きょう」）・�
 
 `mozc.el` も helper も GUI に依存しないので、ターミナル（`emacs -nw`）でも同じように使えます。
 候補一覧もバッファ上に表示されます。
+
+### 直前の文字列を文脈にする
+
+Mozc は直前に確定した言葉を次の変換の文脈にします（「日本」のあとの「かい」は「海」、
+「東京」のあとの「と」は「都」）。ただし文脈になるのは Mozc で確定したものだけで、カーソルを
+動かすと捨てられるので、書いてある文章の途中やファイルを開いて続きを書くときは文脈がありません。
+
+`mozc-context.el` を読み込むと、変換を始めるときにカーソルの直前の文字列（同じ行の 20 文字まで、
+`mozc-context-length` で変更可）を helper に渡し、その末尾の言葉を文脈にします。`mozc.el` 本体は
+変えません。直前の文字列を受け取れない helper（公式の `mozc_emacs_helper` など）と組み合わせた
+ときは何もしません。
 
 <p align="center">
   <img src="./docs/terminal-nw.png" width="560" alt="Windows Terminal の PowerShell で emacs -nw を起動し、「きしゃのきしゃがきしゃできしゃした」を変換している画面。選択中の文節の候補一覧がバッファ上に表示され、モードラインに [あ] が出ている">
@@ -226,12 +239,14 @@ helper 単体で、「かんじ」を変換・確定できるかを確かめら�
 |:---|:---|
 | `build.ps1` | ビルドスクリプト。使う Mozc・abseil・protobuf・WIL・辞書の元データの版を先頭で固定している |
 | `mini_bazel.py` | Mozc の `BUILD.bazel` を評価して `build.ninja` を生成する。Bazel のうち Mozc のエンジンと辞書データの生成に要る部分だけを実装 |
-| `patches/` | MinGW の gcc で通すための Mozc へのパッチ（`__try`/`__except` と、ファイルを開く処理） |
+| `patches/` | Mozc へのパッチ。MinGW の gcc で通すためのもの（`__try`/`__except` と、ファイルを開く処理）と、直前の文字列を逆変換して文脈の文節にするもの |
 | `emacs_standalone/` | Mozc のソースツリーに足すパッケージ。エンジン内蔵の helper 本体と、MinGW に無い ATL / aux_ulib を使う部分の代替実装 |
 | `compat/` | MinGW に無いヘッダの代わり（`atlbase.h` / `aux_ulib.h`） |
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（`build.ps1` が `-OutDir` にコピーする） |
+| `mozc-context.el` | カーソルの直前の文字列を helper に渡す（`build.ps1` が `-OutDir` にコピーする） |
+| `eval/` | 変換精度と学習の評価（[eval/README.ja.md](./eval/README.ja.md)） |
 
-helper で手を入れているのは次の 4 点です。
+helper で手を入れているのは次の 5 点です。
 
 - `mozc.el` とのやり取りはセッション ID が 32 ビット、エンジン内部は 64 ビットなので、
   公式 helper と同じく対応表を持たせています
@@ -243,6 +258,10 @@ helper で手を入れているのは次の 4 点です。
 - 学習データは `mozc_server` なら 1 分ごとに保存されますが、helper は Emacs から前触れなく
   止められるので、確定したとき（1 分に 1 回まで）と、終わるとき（Ctrl-Break / Ctrl-Close /
   エラー終了）に保存しています
+- `mozc-context.el` が送る `(EVENT_ID SetContext SESSION_ID "直前の文字列")` を受け付け、次の
+  キーから Mozc の `preceding_text` として渡します。受け付けることは挨拶の `config` に
+  `(set-context . t)` を載せて知らせます。Mozc は直前の文字列の末尾が数字か英字のときしか文脈に
+  しないので、それ以外は末尾 10 文字を逆変換して、読みと品詞のついた文節にするパッチを当てています
 
 ## Mozc を新しい版に更新する
 

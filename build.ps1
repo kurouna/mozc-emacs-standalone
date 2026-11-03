@@ -15,6 +15,7 @@
 #   mozc_emacs_helper.exe  helper（エンジンと辞書を内蔵）
 #   mozc.el                同じ版の Mozc 公式 mozc.el（1 行目にクッキーを追加）
 #   mozc-user-dict.el      ユーザー辞書を Emacs から編集する（このリポジトリのもの）
+#   mozc-context.el        カーソルの直前の文字列を変換の文脈にする（このリポジトリのもの）
 #   LICENSES\              exe に含まれるもののライセンス文
 param(
   [string]$DevkitBin = 'D:\w64devkit\bin',
@@ -257,6 +258,7 @@ if ($el -notmatch '\A[^\r\n]*lexical-binding') {
 }
 Write-Utf8Lf (Join-Path $OutDir 'mozc.el') $el
 Copy-Item -Force (Join-Path $PSScriptRoot 'mozc-user-dict.el') $OutDir
+Copy-Item -Force (Join-Path $PSScriptRoot 'mozc-context.el') $OutDir
 # exe を配るときは、この LICENSES\ も一緒に配ること
 $licDir = Join-Path $OutDir 'LICENSES'
 New-Item -ItemType Directory -Force $licDir | Out-Null
@@ -276,4 +278,4 @@ if (-not (Test-Path $mingwLicense)) {
 Copy-Item -Force $mingwLicense (Join-Path $licDir 'MinGW-w64-runtime.txt')
 
 Write-Host "`n=== OK: $OutDir"
-Write-Host '    mozc_emacs_helper.exe / mozc.el / mozc-user-dict.el / LICENSES\'
+Write-Host '    mozc_emacs_helper.exe / mozc.el / mozc-user-dict.el / mozc-context.el / LICENSES\'

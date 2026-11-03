@@ -49,6 +49,7 @@
 #include "absl/status/status.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -162,11 +163,36 @@ void PrintGreetingMessage() {
       break;
   }
 
+  // set-context tells mozc-context.el that this helper takes SetContext.
+  // mozc.el keeps the config alist as `mozc-config-protobuf'.
   absl::FPrintF(stdout,
                 "((mozc-emacs-helper . t)(version . %s)"
-                "(config . ((preedit-method . %s))))\n",
+                "(config . ((preedit-method . %s)(set-context . t))))\n",
                 QuoteString(Version::GetMozcVersion()), preedit_method);
   fflush(stdout);
+}
+
+// Parses (EVENT_ID SetContext SESSION_ID "TEXT"), which mozc-context.el sends
+// with the text before the point.  Returns false for any other command, which
+// ParseInputLine handles.
+bool ParseSetContext(absl::string_view line, uint32_t* event_id,
+                     uint32_t* session_id, std::string* text) {
+  std::vector<std::string> tokens;
+  if (!TokenizeSExpr(line, &tokens) || tokens.size() < 3 ||
+      tokens[2] != "SetContext") {
+    return false;
+  }
+  if (tokens.size() != 6 || tokens.front() != "(" || tokens.back() != ")") {
+    ErrorExit(kErrWrongNumberOfArguments, "Wrong number of arguments");
+  }
+  if (!absl::SimpleAtoi(tokens[1], event_id) ||
+      !absl::SimpleAtoi(tokens[3], session_id)) {
+    ErrorExit(kErrWrongTypeArgument, "Event ID or session ID is not an integer");
+  }
+  if (!UnquoteString(tokens[4], text)) {
+    ErrorExit(kErrWrongTypeArgument, "Wrong string literal");
+  }
+  return true;
 }
 
 // "C:\..." or "\\server\...".  A relative path would be resolved against
@@ -187,6 +213,8 @@ void ProcessLoop(SessionHandler& handler) {
   // The emacs protocol carries 32-bit session ids, while SessionHandler uses
   // 64-bit ones.  Map small sequential ids to the engine's ids.
   absl::flat_hash_map<uint32_t, uint64_t> sessions;
+  // The text before the point, by session, as SetContext gave it last.
+  absl::flat_hash_map<uint32_t, std::string> contexts;
   uint32_t next_session_id = 1;
   absl::Time last_sync = absl::InfinitePast();
   commands::Command command;
@@ -199,6 +227,16 @@ void ProcessLoop(SessionHandler& handler) {
     command.Clear();
     uint32_t event_id = 0;
     uint32_t session_id = 0;
+
+    if (std::string text;
+        ParseSetContext(line, &event_id, &session_id, &text)) {
+      contexts[session_id] = std::move(text);
+      absl::FPrintF(
+          stdout, "((emacs-event-id . %u)(emacs-session-id . %u)(output . ()))\n",
+          event_id, session_id);
+      fflush(stdout);
+      continue;
+    }
 
     ParseInputLine(line, &event_id, &session_id, command.mutable_input());
 
@@ -220,6 +258,7 @@ void ProcessLoop(SessionHandler& handler) {
           Eval(handler, command);
           sessions.erase(it);
         }
+        contexts.erase(session_id);
         command.clear_output();
         break;
       case commands::Input::SEND_KEY: {
@@ -235,6 +274,13 @@ void ProcessLoop(SessionHandler& handler) {
           it = sessions.emplace(session_id, id).first;
         }
         command.mutable_input()->set_id(it->second);
+        // The session reads the context only at the first key of a
+        // composition, and then reconstructs the history segments from it
+        // unless they already end the text before the point.
+        if (auto ctx = contexts.find(session_id); ctx != contexts.end()) {
+          command.mutable_input()->mutable_context()->set_preceding_text(
+              ctx->second);
+        }
         if (!Eval(handler, command)) {
           ErrorExit(kErrSessionError, "Session failed");
         }

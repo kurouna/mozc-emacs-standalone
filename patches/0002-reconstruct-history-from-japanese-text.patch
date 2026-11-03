@@ -1,0 +1,88 @@
+diff --git a/src/converter/converter.cc b/src/converter/converter.cc
+index d4e5654..dcff528 100644
+--- a/src/converter/converter.cc
++++ b/src/converter/converter.cc
+@@ -403,7 +403,66 @@ bool Converter::DeleteCandidateFromHistory(const Segments& segments,
+ bool Converter::ReconstructHistory(
+     Segments* segments, const absl::string_view preceding_text) const {
+   segments->Clear();
+-  return history_reconstructor_.ReconstructHistory(preceding_text, segments);
++  if (history_reconstructor_.ReconstructHistory(preceding_text, segments)) {
++    return true;
++  }
++  return ReconstructHistoryByReverseConversion(preceding_text, segments);
++}
++
++bool Converter::ReconstructHistoryByReverseConversion(
++    absl::string_view preceding_text, Segments* segments) const {
++  // Looks back this many characters, and keeps this many segments from them.
++  constexpr size_t kMaxChars = 10;
++  constexpr size_t kMaxSegments = 2;
++
++  // The text before a line break does not connect to what follows.
++  if (const size_t pos = preceding_text.find_last_of("\r\n");
++      pos != absl::string_view::npos) {
++    preceding_text.remove_prefix(pos + 1);
++  }
++  const size_t chars = Util::CharsLen(preceding_text);
++  if (chars == 0) {
++    return false;
++  }
++  const bool truncated = chars > kMaxChars;
++  const absl::string_view tail =
++      truncated ? Util::Utf8SubString(preceding_text, chars - kMaxChars)
++                : preceding_text;
++
++  Segments reverse;
++  if (!StartReverseConversion(&reverse, tail)) {
++    return false;
++  }
++  const size_t size = reverse.conversion_segments_size();
++  // The first segment may be a word cut in the middle.
++  size_t begin = (truncated && size > 1) ? 1 : 0;
++  if (size > kMaxSegments) {
++    begin = std::max(begin, size - kMaxSegments);
++  }
++  for (size_t i = begin; i < size; ++i) {
++    const Segment& rev = reverse.conversion_segment(i);
++    if (rev.candidates_size() == 0 || rev.candidate(0).value.empty()) {
++      segments->Clear();
++      return false;
++    }
++    // Reverse conversion swaps the key and the value: the segment key is the
++    // text, and the candidate value is its reading.
++    const Candidate& rc = rev.candidate(0);
++    Segment* segment = segments->add_segment();
++    segment->set_key(rc.value);
++    segment->set_segment_type(Segment::HISTORY);
++    Candidate* candidate = segment->push_back_candidate();
++    candidate->key = rc.value;
++    candidate->value = std::string(rev.key());
++    candidate->content_key =
++        rc.content_value.empty() ? rc.value : rc.content_value;
++    candidate->content_value =
++        rc.content_key.empty() ? std::string(rev.key()) : rc.content_key;
++    candidate->lid = rc.lid;
++    candidate->rid = rc.rid;
++    candidate->attributes = Attribute::NO_LEARNING;
++  }
++  return segments->segments_size() > 0;
+ }
+ 
+ bool Converter::CommitSegmentValueInternal(
+diff --git a/src/converter/converter.h b/src/converter/converter.h
+index 337ae51..ef09930 100644
+--- a/src/converter/converter.h
++++ b/src/converter/converter.h
+@@ -222,6 +222,11 @@ class Converter final : public ConverterInterface {
+ 
+   void PopulateReadingOfCommittedCandidateIfMissing(Segments* segments) const;
+ 
++  // Makes history segments from the last words of `preceding_text` by reverse
++  // conversion, for the text HistoryReconstructor does not handle.
++  bool ReconstructHistoryByReverseConversion(absl::string_view preceding_text,
++                                             Segments* segments) const;
++
+   bool PredictForRequestWithSegments(const ConversionRequest& request,
+                                      Segments* segments) const;
+ 

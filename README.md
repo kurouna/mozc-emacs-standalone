@@ -95,6 +95,7 @@ including abseil and protobuf.
 | `mozc_emacs_helper.exe` | The helper with the engine and dictionary inside. Depends only on Windows system DLLs |
 | `mozc.el` | Mozc's official `src/unix/emacs/mozc.el` of the same version, with only `-*- lexical-binding: nil -*-` added to the first line (silences Emacs 31's `Missing lexical-binding cookie` warning; behavior is unchanged) |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)) |
+| `mozc-context.el` | Makes the text before the point the conversion context ([below](#the-text-before-the-point-as-context)) |
 | `LICENSES\` | License texts of what the exe contains. Pass them along with the exe |
 
 Keep the work directory (default `%TEMP%\mozc-build`) and later builds are incremental. You can
@@ -112,6 +113,7 @@ Point Emacs to where you put `mozc.el` and `mozc_emacs_helper.exe` (`~/.emacs.d/
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
 (require 'mozc-user-dict)   ; optional: edit the user dictionary
+(require 'mozc-context)     ; optional: the text before the point as the conversion context
 ```
 
 `C-\` toggles it. While converting: Space converts and cycles candidates, Enter commits, F7 gives
@@ -120,6 +122,17 @@ katakana, and Right moves to the next segment. Dates (`kyou`), postal codes, cal
 
 It works the same in a terminal (`emacs -nw`), since `mozc.el` and the helper do not depend on
 the GUI; the candidate list is drawn in the buffer there too.
+
+### The text before the point as context
+
+Mozc converts with the words committed last as context (`kai` after 日本 becomes 海, `to` after
+東京 becomes 都). Only what Mozc committed counts, though, and it is dropped once the point moves,
+so there is no context in the middle of written text or when continuing a file you opened.
+
+With `mozc-context.el` loaded, the text before the point (up to 20 characters on the same line;
+see `mozc-context-length`) goes to the helper when a conversion starts, and its last words become
+the context. It leaves `mozc.el` itself as it is, and does nothing with a helper that does not take
+the text (such as the official `mozc_emacs_helper`).
 
 <p align="center">
   <img src="./docs/terminal-nw.png" width="560" alt="emacs -nw running in PowerShell in Windows Terminal: converting kisha no kisha ga kisha de kisha shita with the candidate list of the focused segment drawn in the buffer, and [あ] in the mode line">
@@ -226,12 +239,14 @@ Converts the reading kanji and commits it. You are fine if the last line has `(r
 |:---|:---|
 | `build.ps1` | The build script. Pins the versions of Mozc, abseil, protobuf, WIL and the dictionary sources at the top |
 | `mini_bazel.py` | Evaluates Mozc's `BUILD.bazel` files and writes `build.ninja`. Implements only the part of Bazel the engine and the dictionary generation need |
-| `patches/` | Patches to Mozc for MinGW gcc (`__try`/`__except` and opening files) |
+| `patches/` | Patches to Mozc: for MinGW gcc (`__try`/`__except` and opening files), and for making context segments of the text before the point by reverse conversion |
 | `emacs_standalone/` | A package added to the Mozc tree: the engine-embedded helper, and replacements for code that needs ATL or aux_ulib, which MinGW lacks |
 | `compat/` | Stand-ins for headers MinGW lacks (`atlbase.h`, `aux_ulib.h`) |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs (`build.ps1` copies it to `-OutDir`) |
+| `mozc-context.el` | Passes the text before the point to the helper (`build.ps1` copies it to `-OutDir`) |
+| `eval/` | Conversion accuracy and learning benchmarks ([eval/README.ja.md](./eval/README.ja.md), in Japanese) |
 
-The helper adds four things to the official one:
+The helper adds five things to the official one:
 
 - `mozc.el` uses 32-bit session ids and the engine 64-bit ones, so it keeps a map between them,
   as the official helper does
@@ -243,6 +258,11 @@ The helper adds four things to the official one:
 - `mozc_server` saves the learning data every minute, but Emacs can stop the helper at any moment,
   so it saves on commits (at most once a minute) and when it ends (Ctrl-Break, Ctrl-Close or an
   error exit)
+- It accepts `(EVENT_ID SetContext SESSION_ID "text before the point")` from `mozc-context.el`
+  and passes the text to Mozc as `preceding_text` with the following keys, and tells it accepts
+  this with `(set-context . t)` in the `config` of its greeting. Mozc makes context only of a
+  trailing number or Latin word, so a patch reverse-converts the last 10 characters of any other
+  text into segments with readings and parts of speech
 
 ## Updating Mozc
 
