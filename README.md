@@ -124,7 +124,9 @@ the GUI; the candidate list is drawn in the buffer there too.
   <img src="./docs/terminal-nw.png" width="560" alt="emacs -nw running in PowerShell in Windows Terminal: converting kisha no kisha ga kisha de kisha shita with the candidate list of the focused segment drawn in the buffer, and [あ] in the mode line">
 </p>
 
-- Learning is stored in `%USERPROFILE%\AppData\LocalLow\Mozc\`; delete it to start over
+- Learning is stored in `%USERPROFILE%\AppData\LocalLow\Mozc\`; delete it to start over. It is
+  saved on commits (at most once a minute), when Mozc is turned off, and when the helper ends
+  (including when Emacs exits or restarts it after a user dictionary change)
 - To keep learning, the user dictionary and the config somewhere else (e.g. next to the exe on a
   USB drive, or apart from another app's helper), pass `--profile_dir` with an absolute path. The
   directory is created if missing, but its parent must exist. `mozc-user-dict.el` follows it. If
@@ -183,7 +185,10 @@ helper so that it reloads the dictionary (`mozc.el` notices the restart and recr
   You can turn Mozc on with `C-\` while typing the reading
 - Imports take one word per line, `reading<TAB>word<TAB>part of speech<TAB>comment` (the last two
   are optional). Files exported by Microsoft IME as text (UTF-16, lines starting with `!`) work as
-  they are. Parts of speech Mozc does not have become nouns
+  they are. Part-of-speech names of Microsoft IME, ATOK and others (さ変名詞, 一段動詞,
+  形容動詞...) are mapped to Mozc's with the same table as Mozc's dictionary tool. Words whose
+  part of speech has no Mozc counterpart (e.g. classical two-row verbs) are skipped, and unknown
+  names become nouns
 - The file is the protobuf message as is. Fields this code does not know are written back
   unchanged, so new fields in later Mozc versions survive
 
@@ -224,12 +229,18 @@ Converts the reading kanji and commits it. You are fine if the last line has `(r
 | `compat/` | Stand-ins for headers MinGW lacks (`atlbase.h`, `aux_ulib.h`) |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs (`build.ps1` copies it to `-OutDir`) |
 
-The helper adds two things to the official one:
+The helper adds four things to the official one:
 
 - `mozc.el` uses 32-bit session ids and the engine 64-bit ones, so it keeps a map between them,
   as the official helper does
 - Mozc on Windows starts a session with the IME off; `mozc.el` expects it on as on Linux, so the
   helper turns it on right after creating the session
+- The engine keeps at most 64 sessions and drops the oldest beyond that, while `mozc.el` leaves a
+  session behind whenever a buffer or the minibuffer goes away with Mozc on. When a key arrives
+  for a dropped session, the helper starts a new one, as the official client does
+- `mozc_server` saves the learning data every minute, but Emacs can stop the helper at any moment,
+  so it saves on commits (at most once a minute) and when it ends (Ctrl-Break, Ctrl-Close or an
+  error exit)
 
 ## Updating Mozc
 
@@ -257,10 +268,10 @@ what failed (set `$env:PYTHONPATH` to `mozc\src` and put w64devkit's `bin` first
 
 ## License / ライセンス
 
-This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`
-and `patches/` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
-本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`
-と `patches/` は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
+This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`,
+`patches/` and the part-of-speech table in `mozc-user-dict.el` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
+本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`・
+`patches/`・`mozc-user-dict.el` の品詞の対応表は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
 The repository itself does not contain Mozc or its dictionary. `mozc_emacs_helper.exe`, both the
 one in the release zip and one you build, contains the following. Their license texts are in

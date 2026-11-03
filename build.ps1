@@ -53,8 +53,10 @@ if (-not (Test-Path (Join-Path $DevkitBin 'gcc.exe'))) {
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
   throw 'python が見つかりません — Python 3 を PATH に入れてください'
 }
-# 辞書データを作る Mozc の Python スクリプトの一部は absl-py (abseil-py) を使う
-& python -c 'import absl' 2>$null
+# 辞書データを作る Mozc の Python スクリプトの一部は absl-py (abseil-py) を使う。
+# import して確かめると、無いときのエラー出力で PowerShell 5.1 が止まってしまうので、
+# 何も出力せずに終了コードで答えさせる
+& python -c 'import importlib.util, sys; sys.exit(importlib.util.find_spec(''absl'') is None)'
 if ($LASTEXITCODE -ne 0) {
   throw 'Python の absl-py がありません — python -m pip install absl-py で入れてください'
 }

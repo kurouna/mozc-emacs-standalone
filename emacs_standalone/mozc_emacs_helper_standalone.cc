@@ -36,9 +36,11 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -51,12 +53,16 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
 #include "base/system_util.h"
 #include "base/version.h"
 #include "config/config_handler.h"
 #include "engine/engine_factory.h"
+#include "engine/engine_interface.h"
 #include "protocol/commands.pb.h"
 #include "session/session_handler.h"
 #include "unix/emacs/mozc_emacs_helper_lib.h"
@@ -80,6 +86,67 @@ ABSL_FLAG(std::string, profile_dir, "",
 
 namespace mozc::emacs {
 namespace {
+
+// mozc_server saves the learning data from its watchdog every minute, and
+// whenever a session is deleted.  mozc.el deletes a session only when Mozc is
+// turned off, and Emacs ends the helper without letting it return from main
+// (quit-process sends CTRL_BREAK_EVENT; delete-process and exiting Emacs send
+// CTRL_CLOSE_EVENT).  So the helper saves after commits and on every way out.
+constexpr absl::Duration kSyncInterval = absl::Seconds(60);
+
+// Serializes the engine between the main thread and the console control
+// handler thread.  `g_engine` is the engine owned by the SessionHandler, and
+// is cleared before the handler is destroyed.
+ABSL_CONST_INIT absl::Mutex g_mutex(absl::kConstInit);
+EngineInterface* g_engine ABSL_GUARDED_BY(g_mutex) = nullptr;
+
+bool Eval(SessionHandler& handler, commands::Command& command) {
+  absl::MutexLock lock(g_mutex);
+  return handler.EvalCommand(&command);
+}
+
+// Starts saving the learning data in the background.  Cheap when nothing
+// has been learned since the last save.
+void StartSaving() {
+  absl::MutexLock lock(g_mutex);
+  if (g_engine != nullptr) {
+    g_engine->Sync();
+  }
+}
+
+// Saves the learning data and waits for it.
+void SaveAndWait() {
+  absl::MutexLock lock(g_mutex);
+  if (g_engine != nullptr) {
+    g_engine->Sync();
+    g_engine->Wait();
+  }
+}
+
+#ifdef _WIN32
+BOOL WINAPI OnConsoleCtrl(DWORD) {
+  SaveAndWait();
+  return FALSE;  // The default handler ends the process.
+}
+#endif  // _WIN32
+
+// Creates an engine session and turns it on.  Returns 0 on failure.
+uint64_t CreateEngineSession(SessionHandler& handler) {
+  commands::Command command;
+  command.mutable_input()->set_type(commands::Input::CREATE_SESSION);
+  if (!Eval(handler, command) || command.output().id() == 0) {
+    return 0;
+  }
+  const uint64_t id = command.output().id();
+  // Windows sessions start in DIRECT mode; mozc.el expects the session to be
+  // active like on Linux, so turn it on.
+  commands::Command on;
+  on.mutable_input()->set_type(commands::Input::SEND_KEY);
+  on.mutable_input()->set_id(id);
+  on.mutable_input()->mutable_key()->set_special_key(commands::KeyEvent::ON);
+  Eval(handler, on);
+  return id;
+}
 
 void PrintGreetingMessage() {
   std::shared_ptr<const config::Config> config =
@@ -120,6 +187,7 @@ void ProcessLoop(SessionHandler& handler) {
   // 64-bit ones.  Map small sequential ids to the engine's ids.
   absl::flat_hash_map<uint32_t, uint64_t> sessions;
   uint32_t next_session_id = 1;
+  absl::Time last_sync = absl::InfinitePast();
   commands::Command command;
   std::string line;
 
@@ -135,41 +203,56 @@ void ProcessLoop(SessionHandler& handler) {
 
     switch (command.input().type()) {
       case commands::Input::CREATE_SESSION:
-        if (!handler.EvalCommand(&command)) {
+        if (const uint64_t id = CreateEngineSession(handler); id != 0) {
+          session_id = next_session_id++;
+          sessions[session_id] = id;
+        } else {
           ErrorExit(kErrSessionError, "Session failed");
         }
-        session_id = next_session_id++;
-        sessions[session_id] = command.output().id();
-        {
-          // Windows sessions start in DIRECT mode; mozc.el expects the
-          // session to be active like on Linux, so turn it on.
-          commands::Command on;
-          on.mutable_input()->set_type(commands::Input::SEND_KEY);
-          on.mutable_input()->set_id(command.output().id());
-          on.mutable_input()->mutable_key()->set_special_key(
-              commands::KeyEvent::ON);
-          handler.EvalCommand(&on);
-        }
-        command.clear_output();
         break;
       case commands::Input::DELETE_SESSION:
         if (auto it = sessions.find(session_id); it != sessions.end()) {
           command.mutable_input()->set_id(it->second);
-          handler.EvalCommand(&command);
+          Eval(handler, command);
           sessions.erase(it);
         }
         command.clear_output();
         break;
-      case commands::Input::SEND_KEY:
-        if (auto it = sessions.find(session_id); it != sessions.end()) {
-          command.mutable_input()->set_id(it->second);
-        } else {
+      case commands::Input::SEND_KEY: {
+        auto it = sessions.find(session_id);
+        if (it == sessions.end()) {
           ErrorExit(kErrSessionError, "Unknown session");
         }
-        if (!handler.EvalCommand(&command)) {
+        command.mutable_input()->set_id(it->second);
+        if (!Eval(handler, command)) {
           ErrorExit(kErrSessionError, "Session failed");
         }
+        if (command.output().error_code() ==
+            commands::Output::SESSION_FAILURE) {
+          // SessionHandler drops the least recently used session beyond 64,
+          // and mozc.el leaks one whenever a buffer or a minibuffer goes away
+          // with Mozc on.  Start over in a new session, as client::Client
+          // does against mozc_server.
+          const uint64_t id = CreateEngineSession(handler);
+          if (id == 0) {
+            ErrorExit(kErrSessionError, "Session failed");
+          }
+          it->second = id;
+          command.mutable_input()->set_id(id);
+          command.clear_output();
+          if (!Eval(handler, command)) {
+            ErrorExit(kErrSessionError, "Session failed");
+          }
+        }
+        if (command.output().has_result()) {
+          if (const absl::Time now = absl::Now();
+              now - last_sync >= kSyncInterval) {
+            StartSaving();
+            last_sync = now;
+          }
+        }
         break;
+      }
       default:
         ErrorExit(kErrVoidFunction, "Unknown function");
     }
@@ -248,8 +331,26 @@ int main(int argc, char** argv) {
     }
   }
 
-  mozc::SessionHandler handler(mozc::EngineFactory::Create().value());
+  std::unique_ptr<mozc::Engine> engine = mozc::EngineFactory::Create().value();
+  {
+    absl::MutexLock lock(mozc::emacs::g_mutex);
+    mozc::emacs::g_engine = engine.get();
+  }
+  mozc::SessionHandler handler(std::move(engine));
+  // ErrorExit() calls exit(), which does not destroy the handler.
+  std::atexit(mozc::emacs::SaveAndWait);
+#ifdef _WIN32
+  ::SetConsoleCtrlHandler(mozc::emacs::OnConsoleCtrl, TRUE);
+#endif  // _WIN32
+
   mozc::emacs::PrintGreetingMessage();
   mozc::emacs::ProcessLoop(handler);
+
+  // Save before letting go of the engine: delete-process closes stdin and
+  // then sends CTRL_CLOSE_EVENT, which must not end the process while the
+  // handler is still saving as it is destroyed.
+  mozc::emacs::SaveAndWait();
+  absl::MutexLock lock(mozc::emacs::g_mutex);
+  mozc::emacs::g_engine = nullptr;
   return 0;
 }

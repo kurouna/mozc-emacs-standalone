@@ -126,7 +126,9 @@ F7 でカタカナ、→ で次の文節です。日付（「きょう」）・�
   <img src="./docs/terminal-nw.png" width="560" alt="Windows Terminal の PowerShell で emacs -nw を起動し、「きしゃのきしゃがきしゃできしゃした」を変換している画面。選択中の文節の候補一覧がバッファ上に表示され、モードラインに [あ] が出ている">
 </p>
 
-- 学習結果は `%USERPROFILE%\AppData\LocalLow\Mozc\` に保存されます。消せば学習前に戻ります
+- 学習結果は `%USERPROFILE%\AppData\LocalLow\Mozc\` に保存されます。消せば学習前に戻ります。
+  保存するのは、確定したとき（1 分に 1 回まで）、Mozc を OFF にしたとき、helper が終わるとき
+  （Emacs の終了やユーザー辞書の書き換えによる再起動を含む）です
 - 学習・ユーザー辞書・設定を別の場所に置くには（USB メモリの exe の隣に置く、別のアプリの
   helper と分けるなど）`--profile_dir` に絶対パスを渡します。ディレクトリが無ければ作ります
   （親はあらかじめ必要です）。`mozc-user-dict.el` もこれに従います。パスに ASCII 以外の文字が
@@ -184,7 +186,9 @@ Mozc 公式の辞書ツールは Qt で作られた別の GUI アプリで、こ
 - 品詞は Mozc と同じ 45 種類から補完で選びます（既定は名詞）。よみの入力中も `C-\` で Mozc を使えます
 - 取り込めるのは 1 行 1 語の「よみ<TAB>単語<TAB>品詞<TAB>コメント」形式です（品詞とコメントは省略可）。
   Microsoft IME で「テキストファイルで出力」したもの（UTF-16、`!` で始まる行）もそのまま読めます。
-  Mozc に無い品詞は名詞にします
+  Microsoft IME・ATOK などの品詞名（さ変名詞・一段動詞・形容動詞など）は、Mozc の辞書ツールと
+  同じ対応表で Mozc の品詞に読み替えます。Mozc に当たる品詞が無い語（文語の二段活用など）は
+  取り込まず、知らない品詞名は名詞にします
 - 辞書ファイルは protobuf をそのまま書いたもので、知らない項目も読んだまま書き戻すので、
   Mozc の版が上がって項目が増えても壊しません
 
@@ -225,12 +229,18 @@ helper 単体で、「かんじ」を変換・確定できるかを確かめら�
 | `compat/` | MinGW に無いヘッダの代わり（`atlbase.h` / `aux_ulib.h`） |
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（`build.ps1` が `-OutDir` にコピーする） |
 
-helper で手を入れているのは次の 2 点です。
+helper で手を入れているのは次の 4 点です。
 
 - `mozc.el` とのやり取りはセッション ID が 32 ビット、エンジン内部は 64 ビットなので、
   公式 helper と同じく対応表を持たせています
 - Windows 版の Mozc はセッションを IME OFF の状態で始めます。`mozc.el` は Linux 版と
   同じく ON の状態を前提にしているので、セッション作成直後に ON にしています
+- エンジンはセッションを 64 個までしか持たず、超えると古いものから捨てます。`mozc.el` は
+  バッファやミニバッファが Mozc ON のまま消えるとセッションを残したままにするので、捨てられた
+  セッションにキーが来たら、公式のクライアントと同じく新しいセッションを作り直します
+- 学習データは `mozc_server` なら 1 分ごとに保存されますが、helper は Emacs から前触れなく
+  止められるので、確定したとき（1 分に 1 回まで）と、終わるとき（Ctrl-Break / Ctrl-Close /
+  エラー終了）に保存しています
 
 ## Mozc を新しい版に更新する
 
@@ -259,10 +269,10 @@ helper で手を入れているのは次の 2 点です。
 
 ## License / ライセンス
 
-This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`
-and `patches/` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
-本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`
-と `patches/` は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
+This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`,
+`patches/` and the part-of-speech table in `mozc-user-dict.el` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
+本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`・
+`patches/`・`mozc-user-dict.el` の品詞の対応表は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
 リポジトリ自体には Mozc 本体と辞書は含まれません。リリースの zip に入っている
 `mozc_emacs_helper.exe` にも、自分でビルドしたものにも、次のものが含まれます。

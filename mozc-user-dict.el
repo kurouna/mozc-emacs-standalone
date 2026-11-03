@@ -23,6 +23,7 @@
 
 (require 'cl-lib)
 (require 'tabulated-list)
+(require 'ucs-normalize)
 
 (declare-function mozc-helper-process "mozc")
 (declare-function mozc-helper-process-stop "mozc")
@@ -77,6 +78,91 @@ helper と同じく --profile_dir=DIR も --profile_dir DIR も受け、何度�
    "動詞ハ行四段" "動詞一段" "動詞カ変" "動詞サ変" "動詞ザ変" "動詞ラ変"
    "形容詞" "終助詞" "句読点" "独立語" "抑制単語"]
   "品詞の名前。添字が protobuf の PosType の値（Mozc の user_dictionary_storage.proto）。")
+
+;; Mozc の data/rules/third_party_pos_map.def（Mozc の辞書ツールが取り込みに使う表）から作った。
+;; Copyright 2010-2021, Google Inc.（BSD 3-Clause、LICENSE.mozc を参照）
+(defconst mozc-user-dict--pos-aliases
+  '(("名詞" "副詞的名詞" "その他自立語" "代名詞" "人称代名詞" "指示代名詞"
+     "単漢字" "解析不能文字" "短縮語" "1" "41" "普通名詞")
+    ("固有名詞" "物品" "固有商品" "固有一般" "7" "8" "その他の固有名詞")
+    ("人名" "固有人他" "4")
+    ("姓" "固有人姓" "2")
+    ("名" "固有人名" "3")
+    ("組織" "社名" "建築物" "固有組織" "6")
+    ("地名" "地名その他" "国" "県" "郡" "区" "市" "町" "村" "駅" "固有地名" "5")
+    ("名詞サ変" "さ変名詞" "ざ変名詞" "名詞ザ変" "9" "10" "サ変名詞")
+    ("名詞形動" "形容動詞" "形動名詞" "さ変形動名詞" "さ変形動" "形容動詞ﾉ"
+     "形容動詞ﾀﾙ" "形容動詞ｶﾞﾙ" "名サ形動" "形動タリ" "11" "12" "39" "40")
+    ("数" "数量" "数詞" "13")
+    ("アルファベット" "英字")
+    ("顔文字" "顔" "70")
+    ("副詞" "さ変副詞" "副詞ﾆ" "副詞ﾅ" "副詞ﾀﾞ" "副詞ﾄ" "副詞ﾄさ変" "14")
+    ("連体詞" "指示連体詞" "15")
+    ("接続詞" "16")
+    ("感動詞" "17")
+    ("接頭語" "姓名接頭語" "地名接頭語" "人名接頭語" "固有接頭語" "前置助数詞"
+     "丁寧１接頭語" "丁寧２接頭語" "丁寧３接頭語" "冠数詞" "19" "20")
+    ("助数詞" "後置助数詞" "後置助数詞＋" "時間助数詞" "時間助数詞＋" "22"
+     "数字列接尾語")
+    ("接尾一般" "接尾語" "固有接尾語" "社名接尾語" "組織接尾語" "建築物接尾語"
+     "連用接尾語" "丁寧接尾語" "丁寧１接尾語" "丁寧２接尾語" "丁寧３接尾語"
+     "丁寧４接尾語" "複数接尾語" "21" "組織名接尾語")
+    ("接尾人名" "姓名接尾語" "人名接尾語")
+    ("接尾地名" "地名接尾語")
+    ("動詞ワ行五段" "あわ行五段" "あわ行" "あわ行う音便" "ワ行五段"
+     "ワ行五段音便" "31" "43")
+    ("動詞カ行五段" "か行五段" "か行" "か行促音便" "カ行五段" "23")
+    ("動詞サ行五段" "さ行五段" "さ行" "サ行五段" "25")
+    ("動詞タ行五段" "た行五段" "た行" "タ行五段" "26")
+    ("動詞ナ行五段" "な行五段" "な行" "ナ行五段" "27")
+    ("動詞マ行五段" "ま行五段" "ま行" "マ行五段" "29")
+    ("動詞ラ行五段" "ら行五段" "ら行" "ラ行五段" "30")
+    ("動詞ガ行五段" "が行五段" "が行" "ガ行五段" "24")
+    ("動詞バ行五段" "ば行五段" "ば行" "バ行五段" "28")
+    ("動詞ハ行四段" "ハ行四段" "32")
+    ("動詞一段" "一段動詞" "33")
+    ("動詞カ変" "カ変動詞" "34")
+    ("動詞サ変" "サ変動詞" "35")
+    ("動詞ザ変" "ザ変動詞" "36")
+    ("動詞ラ変" "ら行変格" "ラ変動詞" "45")
+    ("形容詞" "形容詞ｶﾞﾙ" "形容詞ｹﾞ" "形容詞ﾒ" "形容詞ｭｳ" "形容詞ｳ"
+     "形容詞ウ" "形容詞イ" "形容詞エ" "37" "38" "68" "69")
+    ("終助詞" "42")
+    ("独立語" "慣用句" "18" "無品詞"))
+  "Microsoft IME・ATOK・ことえりなどの品詞名と、それに当たる Mozc の品詞。
+各要素は (Mozc の品詞 . 他の IME の品詞名の並び)。")
+
+(defconst mozc-user-dict--pos-unsupported
+  '("ナ変動詞" "カ行上二段" "ガ行上二段" "タ行上二段" "ダ行上二段" "ハ行上二段"
+    "バ行上二段" "マ行上二段" "ヤ行上二段" "ラ行上二段" "カ行下二段" "ガ行下二段"
+    "サ行下二段" "ザ行下二段" "タ行下二段" "ダ行下二段" "ナ行下二段" "ハ行下二段"
+    "バ行下二段" "マ行下二段" "ヤ行下二段" "ラ行下二段" "ワ行下二段" "44" "46"
+    "47" "48" "49" "50" "51" "52" "53" "54" "55" "56" "57" "58" "59" "60" "61"
+    "62" "63" "64" "65" "66" "67")
+  "Mozc に当たる品詞が無い、他の IME の品詞名。Mozc の辞書ツールはこの語を取り込まない。")
+
+(defvar mozc-user-dict--import-pos-table nil
+  "他の IME の品詞名から Mozc の品詞番号（または `skip'）へのハッシュ表。")
+
+(defun mozc-user-dict--import-pos (name)
+  "他の IME の品詞名 NAME に当たる Mozc の品詞番号を返す。
+Mozc に当たる品詞が無ければ `skip'、知らない名前なら nil。
+Mozc の辞書ツールと同じく、全角英数字と半角カナ、\":ja\" のような言語の指定、
+ATOK の自動登録の印（末尾の $ と *）は区別しない。"
+  (unless mozc-user-dict--import-pos-table
+    (let ((table (make-hash-table :test #'equal)))
+      (dotimes (i (length mozc-user-dict-pos-names))
+        (puthash (ucs-normalize-NFKC-string (aref mozc-user-dict-pos-names i)) i table))
+      (pcase-dolist (`(,mozc . ,names) mozc-user-dict--pos-aliases)
+        (let ((pos (cl-position mozc mozc-user-dict-pos-names :test #'equal)))
+          (dolist (n names)
+            (puthash (ucs-normalize-NFKC-string n) pos table))))
+      (dolist (n mozc-user-dict--pos-unsupported)
+        (puthash (ucs-normalize-NFKC-string n) 'skip table))
+      (setq mozc-user-dict--import-pos-table table)))
+  (let ((key (car (split-string (ucs-normalize-NFKC-string name) ":"))))
+    (gethash (substring key 0 (string-match "\\*?\\$?\\'" key))
+             mozc-user-dict--import-pos-table)))
 
 ;; ---- protobuf の読み書き ---------------------------------------------------
 ;; メッセージは (番号 ワイヤ型 . 値) の並び。値はワイヤ型 0 なら整数、
@@ -306,10 +392,12 @@ ENTRIES は (よみ 単語 品詞番号 コメント) の並び。同じよみ�
   "テキスト辞書 FILE を取り込む。
 1 行 1 語で「よみ<TAB>単語<TAB>品詞<TAB>コメント」（品詞とコメントは省略可）。
 Microsoft IME の「テキストファイルで出力」の形式（UTF-16、! で始まる行は
-コメント）もそのまま読める。品詞が Mozc に無い名前なら POS（既定は名詞）にする。"
+コメント）もそのまま読める。他の IME の品詞名は Mozc の辞書ツールと同じ表で
+Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の二段活用など）は
+取り込まない。知らない品詞名なら POS（既定は名詞）にする。"
   (interactive (list (read-file-name "取り込むテキスト辞書: " nil nil t)))
   (let ((default-pos (or pos 1))
-        entries unknown)
+        entries unknown skipped)
     (with-temp-buffer
       (insert-file-contents file)    ; UTF-16 / UTF-8 / Shift_JIS は自動判別
       (goto-char (point-min))
@@ -321,24 +409,35 @@ Microsoft IME の「テキストファイルで出力」の形式（UTF-16、! �
                    (reading (nth 0 cols))
                    (word (nth 1 cols))
                    (pos-name (nth 2 cols))
-                   (p (and pos-name (cl-position pos-name mozc-user-dict-pos-names :test #'equal))))
+                   (p (and pos-name (not (string-empty-p pos-name))
+                           (mozc-user-dict--import-pos pos-name))))
               (when (and reading word (not (string-empty-p reading)) (not (string-empty-p word)))
-                (when (and pos-name (not p) (not (string-empty-p pos-name)))
-                  (cl-pushnew pos-name unknown :test #'equal))
-                (push (list reading word (or p default-pos) (or (nth 3 cols) "")) entries)))))
+                (cond
+                 ((eq p 'skip)
+                  (push pos-name skipped))
+                 (t
+                  (when (and pos-name (not p) (not (string-empty-p pos-name)))
+                    (cl-pushnew pos-name unknown :test #'equal))
+                  (push (list reading word (or p default-pos) (or (nth 3 cols) "")) entries)))))))
         (forward-line 1)))
     (when (null entries)
       (user-error "取り込める単語がありません: %s" file))
-    (let ((result (mozc-user-dict--add-entries (mozc-user-dict--read) (nreverse entries))))
+    (setq entries (nreverse entries))
+    (let ((result (mozc-user-dict--add-entries (mozc-user-dict--read) entries)))
       (unless (zerop (cdr result))
         (mozc-user-dict--write (car result))
         (mozc-user-dict--refresh-list))
-      (message "%d 語を取り込みました（%d 語は登録済み）%s"
+      (message "%d 語を取り込みました（%d 語は登録済み）%s%s"
                (cdr result) (- (length entries) (cdr result))
                (if unknown
-                   (format "。Mozc に無い品詞は%sにしました: %s"
+                   (format "。知らない品詞は%sにしました: %s"
                            (mozc-user-dict-pos-name default-pos)
                            (string-join (nreverse unknown) " "))
+                 "")
+               (if skipped
+                   (format "。Mozc に無い品詞の %d 語は取り込みませんでした: %s"
+                           (length skipped)
+                           (string-join (delete-dups (nreverse skipped)) " "))
                  "")))))
 
 ;; ---- 一覧 ------------------------------------------------------------------
