@@ -25,6 +25,7 @@ linked in, using only the gcc of [w64devkit](https://github.com/skeeto/w64devkit
 - Emacs uses Mozc's official `mozc.el` as is, in GUI and in `-nw`
 - No Bazel and no MSVC
 - A user dictionary editor in pure Emacs Lisp (`mozc-user-dict.el`) instead of Mozc's GUI dictionary tool
+- A settings editor in pure Emacs Lisp (`mozc-config.el`) instead of Mozc's GUI settings dialog
 
 This repository contains only the build script, patches and extra sources; the build fetches
 Mozc and its dictionary from their upstream sources. A prebuilt zip is available from
@@ -60,6 +61,7 @@ Get `mozc-emacs-standalone-<version>-win-x64.zip` from [Releases](https://github
 | `mozc_emacs_helper.exe` | The helper with the Mozc engine and dictionary inside |
 | `mozc.el` | Mozc's official `mozc.el` of the same version |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)). Included since v0.0.3 |
+| `mozc-config.el` | Changes Mozc's settings from Emacs ([below](#mozc-settings)). Keep it next to `mozc-user-dict.el` |
 | `LICENSES\` | License texts of what the exe contains. Keep them with the exe when you pass it on |
 | `README.md` / `README.ja.md` | This document |
 | `docs\` | Screenshots shown in the READMEs |
@@ -95,6 +97,7 @@ including abseil and protobuf.
 | `mozc_emacs_helper.exe` | The helper with the engine and dictionary inside. Depends only on Windows system DLLs |
 | `mozc.el` | Mozc's official `src/unix/emacs/mozc.el` of the same version, with only `-*- lexical-binding: nil -*-` added to the first line (silences Emacs 31's `Missing lexical-binding cookie` warning; behavior is unchanged) |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs ([below](#user-dictionary)) |
+| `mozc-config.el` | Changes Mozc's settings from Emacs ([below](#mozc-settings)) |
 | `LICENSES\` | License texts of what the exe contains. Pass them along with the exe |
 
 Keep the work directory (default `%TEMP%\mozc-build`) and later builds are incremental. You can
@@ -112,6 +115,7 @@ Point Emacs to where you put `mozc.el` and `mozc_emacs_helper.exe` (`~/.emacs.d/
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
 (require 'mozc-user-dict)   ; optional: edit the user dictionary
+(require 'mozc-config)      ; optional: change Mozc's settings
 ```
 
 `C-\` toggles it. While converting: Space converts and cycles candidates, Enter commits, F7 gives
@@ -194,6 +198,41 @@ helper so that it reloads the dictionary (`mozc.el` notices the restart and recr
 - The file is the protobuf message as is. Fields this code does not know are written back
   unchanged, so new fields in later Mozc versions survive
 
+### Mozc settings
+
+Mozc's settings dialog is another Qt GUI that this kit does not build. Instead, `mozc-config.el`
+reads and writes Mozc's settings file (`%USERPROFILE%\AppData\LocalLow\Mozc\config1.db`, or the one
+in `--profile_dir`) in pure Emacs Lisp, then restarts the helper so that it reloads the settings.
+
+| Command | Action |
+|:---|:---|
+| `M-x mozc-config` | Lists the settings. `RET` change / `d` reset to default / `D` reset all / `g` refresh / `q` quit |
+
+- The list has the items of the settings dialog that take effect in Emacs: romaji or kana input,
+  punctuation, symbols, space input, candidate selection shortcut, numpad input, the ¥ key,
+  keymap style (ATOK / MS-IME / Kotoeri), personalization, special conversions (single kanji,
+  symbols, emoticons, dates, emoji, special numbers, calculator, katakana to English, postal codes,
+  spelling correction), input assistance (switching to halfwidth, converting at punctuation,
+  Shift key mode switch), suggestions, secret mode and presentation mode
+- `RET` toggles on/off items and offers completion for the others. Items changed from their
+  defaults are shown in bold
+- From init.el, use `mozc-config-set` (the value is the text shown in the list, or `t` / `nil` / a
+  number)
+
+  ```elisp
+  (with-eval-after-load 'mozc-config
+    (mozc-config-set 'punctuation-method "，．")
+    (mozc-config-set 'use-emoji-conversion nil)
+    (mozc-config-set 'suggestions-size 5))
+  ```
+
+- Custom keymaps, the romaji table and per-character-group width rules need table editors and
+  are not handled; they are kept as they are in the file. The usage dictionary, the input mode
+  indicator near the cursor and the Japanese keyboard layout option do not take effect in Emacs
+  and are not listed
+- Items reset to their defaults are removed from the file (Mozc fills in missing items with
+  their defaults)
+
 ### Check
 
 Converts the reading kanji and commits it. You are fine if the last line has `(result ...)`.
@@ -212,9 +251,9 @@ Converts the reading kanji and commits it. You are fine if the last line has `(r
   with whatever the helper that saved last had, and in `segment.db` / `boundary.db` the helpers
   overwrite each other's records. Conversion itself works in every Emacs, and with a single
   Emacs there is no issue.
-- **User dictionary changes reach only the Emacs that made them**: `mozc-user-dict.el` restarts
-  the helper of that Emacs. Other Emacs keep the old dictionary until `M-x mozc-user-dict-reload`
-  or a restart.
+- **User dictionary and settings changes reach only the Emacs that made them**: `mozc-user-dict.el`
+  and `mozc-config.el` restart the helper of that Emacs. Other Emacs keep the old dictionary and
+  settings until `M-x mozc-user-dict-reload` or a restart.
 - **Candidate window**: `mozc.el` draws the candidate list in the buffer when it fits in the
   window, and falls back to the echo area otherwise (e.g. in a small window or with a large font).
 - **System dictionary**: the system dictionary is built into the exe, so adding another one needs
@@ -230,6 +269,7 @@ Converts the reading kanji and commits it. You are fine if the last line has `(r
 | `emacs_standalone/` | A package added to the Mozc tree: the engine-embedded helper, and replacements for code that needs ATL or aux_ulib, which MinGW lacks |
 | `compat/` | Stand-ins for headers MinGW lacks (`atlbase.h`, `aux_ulib.h`) |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs (`build.ps1` copies it to `-OutDir`) |
+| `mozc-config.el` | Changes Mozc's settings from Emacs (`build.ps1` copies it to `-OutDir`) |
 
 The helper adds four things to the official one:
 
@@ -271,9 +311,9 @@ what failed (set `$env:PYTHONPATH` to `mozc\src` and put w64devkit's `bin` first
 ## License / ライセンス
 
 This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`,
-`patches/` and the part-of-speech table in `mozc-user-dict.el` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
+`patches/`, the part-of-speech table in `mozc-user-dict.el` and the setting names in `mozc-config.el` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
 本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`・
-`patches/`・`mozc-user-dict.el` の品詞の対応表は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
+`patches/`・`mozc-user-dict.el` の品詞の対応表・`mozc-config.el` の設定の項目名は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
 The repository itself does not contain Mozc or its dictionary. `mozc_emacs_helper.exe`, both the
 one in the release zip and one you build, contains the following. Their license texts are in

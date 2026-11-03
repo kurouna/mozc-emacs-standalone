@@ -57,13 +57,17 @@ helper と同じく --profile_dir=DIR も --profile_dir DIR も受け、何度�
         (user-error "mozc-user-dict: --profile_dir は絶対パスで指定してください: %s" dir))
       dir)))
 
+(defun mozc-user-dict--profile-file (name)
+  "helper の学習先にあるファイル NAME の場所。mozc-config.el も使う。"
+  (expand-file-name name
+                    (or (mozc-user-dict--profile-dir)
+                        (expand-file-name "AppData/LocalLow/Mozc"
+                                          (or (getenv "USERPROFILE") "~")))))
+
 (defun mozc-user-dict--file ()
   "ユーザー辞書ファイルの場所。"
   (or mozc-user-dict-file
-      (expand-file-name "user_dictionary.db"
-                        (or (mozc-user-dict--profile-dir)
-                            (expand-file-name "AppData/LocalLow/Mozc"
-                                              (or (getenv "USERPROFILE") "~"))))))
+      (mozc-user-dict--profile-file "user_dictionary.db")))
 
 (defcustom mozc-user-dict-name "Emacs"
   "単語を登録する辞書の名前。無ければ作る。"
@@ -232,22 +236,24 @@ ATOK の自動登録の印（末尾の $ と *）は区別しない。"
 ;; 辞書:    UserDictionary（1 = id, 3 = name, 4 = entries）
 ;; 単語:    Entry（1 = key, 2 = value, 4 = comment, 5 = pos）
 
+(defun mozc-user-dict--read-file (file)
+  "protobuf のファイル FILE を読んでフィールドの並びを返す。無ければ空。mozc-config.el も使う。"
+  (if (file-exists-p file)
+      (with-temp-buffer
+        (set-buffer-multibyte nil)
+        (let ((coding-system-for-read 'no-conversion))
+          (insert-file-contents-literally file))
+        (mozc-user-dict--decode (buffer-string)))
+    nil))
+
 (defun mozc-user-dict--read ()
   "辞書ファイルを読んでフィールドの並びを返す。無ければ空。"
-  (let ((file (mozc-user-dict--file)))
-    (if (file-exists-p file)
-        (with-temp-buffer
-          (set-buffer-multibyte nil)
-          (let ((coding-system-for-read 'no-conversion))
-            (insert-file-contents-literally file))
-          (mozc-user-dict--decode (buffer-string)))
-      nil)))
+  (mozc-user-dict--read-file (mozc-user-dict--file)))
 
-(defun mozc-user-dict--write (storage)
-  "STORAGE を辞書ファイルに書き、helper に読み直させる。"
-  (let* ((file (mozc-user-dict--file))
-         (tmp (concat file ".tmp"))
-         (bytes (mozc-user-dict--encode storage)))
+(defun mozc-user-dict--write-file (file fields)
+  "FIELDS を protobuf にして FILE に書き、helper に読み直させる。mozc-config.el も使う。"
+  (let ((tmp (concat file ".tmp"))
+        (bytes (mozc-user-dict--encode fields)))
     (make-directory (file-name-directory file) t)
     ;; Mozc 本体と同じく、一時ファイルに書いてから置き換える
     (let ((coding-system-for-write 'no-conversion))
@@ -255,11 +261,21 @@ ATOK の自動登録の印（末尾の $ と *）は区別しない。"
     (rename-file tmp file t))
   (mozc-user-dict-reload))
 
+(defun mozc-user-dict--write (storage)
+  "STORAGE を辞書ファイルに書き、helper に読み直させる。"
+  (mozc-user-dict--write-file (mozc-user-dict--file) storage))
+
 (defun mozc-user-dict-reload ()
-  "helper を再起動して、ユーザー辞書を読み直させる。"
+  "helper を再起動して、ユーザー辞書（と設定）を読み直させる。
+helper は止まる前に学習データを保存するので、終わるまで待つ。待たずに次の helper が
+起動すると、保存される前の学習データを読み、後でそれを書いて学習を消してしまう。"
   (interactive)
-  (when (and (fboundp 'mozc-helper-process) (mozc-helper-process))
-    (mozc-helper-process-stop)))
+  (let ((proc (and (fboundp 'mozc-helper-process) (mozc-helper-process))))
+    (when proc
+      (mozc-helper-process-stop)
+      (with-timeout (5 (message "mozc-user-dict: helper が 5 秒以内に終わりませんでした"))
+        (while (process-live-p proc)
+          (accept-process-output proc 0.05))))))
 
 (defun mozc-user-dict--entry-key (ef)
   "単語のフィールド EF の (よみ 単語 品詞番号)。同じ単語かどうかはこれで決める。"
@@ -461,13 +477,13 @@ Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の�
     map)
   "一覧のキー。")
 
-(defconst mozc-user-dict--legend "a 登録 / d 削除 / i 取り込み / g 再読込 / q 閉じる"
-  "一覧の下に出すキーの凡例。")
+(defvar-local mozc-user-dict--legend nil
+  "一覧の下に出すキーの凡例。一覧のモードがバッファごとに設定する（mozc-config.el も使う）。")
 
 (defun mozc-user-dict--print-with-legend (orig &rest args)
   "`tabulated-list-print' の前後で、一覧の下のキーの凡例を外して付け直す。
 再読込・並べ替え・登録や削除後の更新のどれで描き直しても凡例が残るようにする。"
-  (if (not (derived-mode-p 'mozc-user-dict-list-mode))
+  (if (not mozc-user-dict--legend)
       (apply orig args)
     (let ((inhibit-read-only t))
       (let ((start (text-property-any (point-min) (point-max) 'mozc-user-dict-legend t)))
@@ -486,6 +502,7 @@ Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の�
   (setq tabulated-list-format [("よみ" 16 t) ("単語" 20 t) ("品詞" 12 t)
                                ("辞書" 10 t) ("コメント" 0 nil)])
   (setq tabulated-list-sort-key '("よみ" . nil))
+  (setq mozc-user-dict--legend "a 登録 / d 削除 / i 取り込み / g 再読込 / q 閉じる")
   (add-hook 'tabulated-list-revert-hook #'mozc-user-dict--refresh nil t)
   (tabulated-list-init-header))
 
@@ -500,11 +517,12 @@ Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の�
 (defun mozc-user-dict-list ()
   "ユーザー辞書の単語を一覧する。"
   (interactive)
-  (with-current-buffer (get-buffer-create "*Mozc user dictionary*")
-    (mozc-user-dict-list-mode)
-    (mozc-user-dict--refresh)
-    (tabulated-list-print)
-    (pop-to-buffer (current-buffer))))
+  (let ((buf (get-buffer-create "*Mozc user dictionary*")))
+    (with-current-buffer buf
+      (mozc-user-dict-list-mode)
+      (mozc-user-dict--refresh)
+      (tabulated-list-print))
+    (pop-to-buffer buf)))
 
 (defun mozc-user-dict-list-delete ()
   "一覧で、カーソル行の単語を消す。"

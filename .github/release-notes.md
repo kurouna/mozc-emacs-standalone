@@ -11,6 +11,7 @@ Windows (x64) の GNU Emacs で Mozc を `C-\` の入力メソッドとして使
 | `mozc_emacs_helper.exe` | The helper with the Mozc engine and dictionary inside / Mozc の変換エンジンと辞書を内蔵した helper |
 | `mozc.el` | Mozc's official `mozc.el` of the same version / 同じ版の Mozc 公式 `mozc.el` |
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs / Emacs からユーザー辞書を編集する |
+| `mozc-config.el` | Changes Mozc's settings from Emacs / Emacs から Mozc の設定を変える |
 | `LICENSES\` | License texts of what the exe contains / exe に含まれるもののライセンス文 |
 | `README.md` / `README.ja.md` | Setup and usage / 設定と使い方 |
 | `docs\` | Screenshots shown in the READMEs / README の画面写真 |

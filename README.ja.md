@@ -26,6 +26,7 @@ Windows の GNU Emacs で、[Mozc](https://github.com/google/mozc) を `C-\` の
 - Emacs 側は Mozc 公式の `mozc.el` をそのまま使います（GUI でも `-nw` でも同じ）
 - Bazel も MSVC も使いません
 - Mozc 公式の辞書ツール（GUI）の代わりに、Emacs Lisp だけで書いたユーザー辞書の編集機能（`mozc-user-dict.el`）があります
+- Mozc 公式の設定ダイアログ（GUI）の代わりに、Emacs から Mozc の設定を変える機能（`mozc-config.el`）があります
 
 このリポジトリにあるのはビルドスクリプト・パッチ・追加ソースだけで、Mozc 本体と辞書は
 ビルド時に各配布元から取得します。ビルド済みの zip は [Releases](https://github.com/kurouna/mozc-emacs-standalone/releases) から入手できます。
@@ -60,6 +61,7 @@ S 式）は公式と同じなので、Emacs 側は公式の `mozc.el` がその�
 | `mozc_emacs_helper.exe` | Mozc の変換エンジンと辞書を内蔵した helper |
 | `mozc.el` | 同じ版の Mozc 公式 `mozc.el` |
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（[下記](#ユーザー辞書)）。v0.0.3 から同梱 |
+| `mozc-config.el` | Emacs から Mozc の設定を変える（[下記](#mozc-の設定)）。`mozc-user-dict.el` と一緒に置く |
 | `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
 | `README.md` / `README.ja.md` | この説明 |
 | `docs\` | README の画面写真 |
@@ -95,6 +97,7 @@ cd mozc-emacs-standalone
 | `mozc_emacs_helper.exe` | エンジンと辞書を内蔵した helper。Windows 標準の DLL にしか依存しない |
 | `mozc.el` | 同じ版の Mozc 公式 `src/unix/emacs/mozc.el`。1 行目に `-*- lexical-binding: nil -*-` だけ足してある（Emacs 31 の `Missing lexical-binding cookie` 警告対策。動作は変わらない） |
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（[下記](#ユーザー辞書)） |
+| `mozc-config.el` | Emacs から Mozc の設定を変える（[下記](#mozc-の設定)） |
 | `LICENSES\` | exe に含まれるもののライセンス文。exe を人に渡すときは一緒に渡してください |
 
 作業ディレクトリ（既定は `%TEMP%\mozc-build`）を残しておけば、2 回目以降は
@@ -114,6 +117,7 @@ exe は `mozc_emacs_helper.exe.old` に退避して差し替えます（Emacs �
       (expand-file-name "mozc/mozc_emacs_helper.exe" user-emacs-directory))
 (setq default-input-method "japanese-mozc")
 (require 'mozc-user-dict)   ; 任意: ユーザー辞書の編集
+(require 'mozc-config)      ; 任意: Mozc の設定の変更
 ```
 
 これで `C-\` で ON/OFF できます。変換中はスペースで変換・候補送り、Enter で確定、
@@ -194,6 +198,38 @@ Mozc 公式の辞書ツールは Qt で作られた別の GUI アプリで、こ
 - 辞書ファイルは protobuf をそのまま書いたもので、知らない項目も読んだまま書き戻すので、
   Mozc の版が上がって項目が増えても壊しません
 
+### Mozc の設定
+
+Mozc 公式の設定ダイアログも Qt の GUI アプリで、このキットではビルドしません。
+代わりに `mozc-config.el` が、Mozc の設定ファイル（`%USERPROFILE%\AppData\LocalLow\Mozc\config1.db`、
+`--profile_dir` を指定していればその中）を Emacs Lisp だけで読み書きし、書き換えたら helper を
+再起動して読み直させます。
+
+| コマンド | 動作 |
+|:---|:---|
+| `M-x mozc-config` | 設定の一覧。`RET` 変更 / `d` 既定に戻す / `D` すべて既定に戻す / `g` 再読込 / `q` 閉じる |
+
+- 一覧には、設定ダイアログの項目のうち Emacs で効くものが並びます：ローマ字入力・かな入力、
+  句読点、記号、スペースの入力、候補選択ショートカット、テンキーからの入力、¥キーで入力する文字、
+  キー設定の選択（ATOK / MS-IME / ことえり）、学習機能、特殊変換（単漢字・記号・顔文字・日付・
+  絵文字・特殊数字・計算機・カタカナ英語・郵便番号・「もしかして」）、入力補助（自動英数変換・
+  句読点変換・シフトキーでの入力切替）、サジェスト、シークレットモード、プレゼンテーションモード
+- 有効・無効の項目は `RET` で切り替わり、ほかは補完で選びます。既定値から変えた項目は太字です
+- init.el からは `mozc-config-set` で設定できます（値は一覧に出る表示の文字列か、`t` / `nil` /
+  数でも可）
+
+  ```elisp
+  (with-eval-after-load 'mozc-config
+    (mozc-config-set 'punctuation-method "，．")
+    (mozc-config-set 'use-emoji-conversion nil)
+    (mozc-config-set 'suggestions-size 5))
+  ```
+
+- キーマップ（キー設定の「編集...」）、ローマ字テーブル、半角・全角の文字ごとの設定は、表を
+  編集する画面が無いので扱いません。設定ファイルにあればそのまま残します。用例辞書、
+  カーソル周辺の入力モード表示、日本語キー配列の設定は Emacs では効かないので一覧に出しません
+- 既定値に戻した項目は設定ファイルから外します（Mozc は書かれていない項目を既定値で補います）
+
 ### 動作確認
 
 helper 単体で、「かんじ」を変換・確定できるかを確かめられます。最後の行に
@@ -212,9 +248,9 @@ helper 単体で、「かんじ」を変換・確定できるかを確かめら�
   `boundary.db` は固定長の記録の並び）が、学習が失われることがあります。`history.db` は
   最後に保存した helper の内容になり、`segment.db` / `boundary.db` では helper どうしが
   互いの記録を上書きします。変換はどの Emacs でもでき、Emacs が 1 つなら問題は起きません
-- **ユーザー辞書の変更は、変更した Emacs にだけすぐ効きます**：`mozc-user-dict.el` はその
-  Emacs の helper を再起動します。ほかの Emacs は `M-x mozc-user-dict-reload` か再起動まで
-  古い辞書のままです
+- **ユーザー辞書と設定の変更は、変更した Emacs にだけすぐ効きます**：`mozc-user-dict.el` と
+  `mozc-config.el` はその Emacs の helper を再起動します。ほかの Emacs は
+  `M-x mozc-user-dict-reload` か再起動まで古い辞書・設定のままです
 - **候補一覧の表示**：`mozc.el` は、候補一覧がウィンドウに入りきるときはバッファ上に、
   入りきらないとき（ウィンドウが小さい・文字が大きいなど）はエコーエリアに表示します
 - **システム辞書**：システム辞書は exe に組み込まれるので、ほかの辞書を足すには Mozc 本体と
@@ -230,6 +266,7 @@ helper 単体で、「かんじ」を変換・確定できるかを確かめら�
 | `emacs_standalone/` | Mozc のソースツリーに足すパッケージ。エンジン内蔵の helper 本体と、MinGW に無い ATL / aux_ulib を使う部分の代替実装 |
 | `compat/` | MinGW に無いヘッダの代わり（`atlbase.h` / `aux_ulib.h`） |
 | `mozc-user-dict.el` | Emacs からユーザー辞書を編集する（`build.ps1` が `-OutDir` にコピーする） |
+| `mozc-config.el` | Emacs から Mozc の設定を変える（`build.ps1` が `-OutDir` にコピーする） |
 
 helper で手を入れているのは次の 4 点です。
 
@@ -272,9 +309,9 @@ helper で手を入れているのは次の 4 点です。
 ## License / ライセンス
 
 This software is released under the [BSD 3-Clause License](./LICENSE). `emacs_standalone/mozc_emacs_helper_standalone.cc`,
-`patches/` and the part-of-speech table in `mozc-user-dict.el` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
+`patches/`, the part-of-speech table in `mozc-user-dict.el` and the setting names in `mozc-config.el` are derived from Mozc; the Mozc copyright notice is in [LICENSE.mozc](./LICENSE.mozc).  
 本ソフトウェアは [BSD 3-Clause License](./LICENSE) のもとで公開されています。`emacs_standalone/mozc_emacs_helper_standalone.cc`・
-`patches/`・`mozc-user-dict.el` の品詞の対応表は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
+`patches/`・`mozc-user-dict.el` の品詞の対応表・`mozc-config.el` の設定の項目名は Mozc を元にしており、Mozc の著作権表示は [LICENSE.mozc](./LICENSE.mozc) にあります。
 
 リポジトリ自体には Mozc 本体と辞書は含まれません。リリースの zip に入っている
 `mozc_emacs_helper.exe` にも、自分でビルドしたものにも、次のものが含まれます。
