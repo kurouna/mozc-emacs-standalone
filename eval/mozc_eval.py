@@ -1,0 +1,523 @@
+#!/usr/bin/env python3
+"""mozc_emacs_helper.exe の変換精度を測る。
+
+mozc.el と同じ S 式で helper を動かし、読みを入れてスペースで変換した結果
+（mozc.el で見えるものと同じ）を正解と比べる。helper を差し替えて測れば、
+エンジンへのパッチの効果を A/B で比べられる。
+
+  python eval/mozc_eval.py run --helper dist/mozc_emacs_helper.exe \
+      --data C:/mozc-build/mozc/src/data/test/quality_regression_test/oss.tsv \
+      --out eval/results/base.json
+  python eval/mozc_eval.py compare eval/results/base.json eval/results/new.json
+
+データの形式（拡張子と中身で判定）:
+  - Mozc の品質回帰テスト TSV（label key value command [rank]）
+    Conversion Expected [N] / Not Expected / Match / Not Match だけを使う
+  - 読みと正解の TSV（reading<TAB>正解[<TAB>正解...]）
+  - AJIMEE-Bench の JSON（input はカタカナ、expected_output は正解のリスト）
+
+学習を汚さないよう、helper は毎回空の一時プロファイル（--profile_dir）で
+起動し、変換結果は確定せずに取り消す。標準ライブラリだけで動く。
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# S 式
+
+_DOT = object()
+
+
+class SExprError(Exception):
+    pass
+
+
+def _tokenize(text):
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif c in '()':
+            yield c
+            i += 1
+        elif c == '"':
+            buf = []
+            i += 1
+            while True:
+                if i >= n:
+                    raise SExprError('unterminated string')
+                c = text[i]
+                if c == '\\':
+                    buf.append(text[i + 1])
+                    i += 2
+                elif c == '"':
+                    i += 1
+                    break
+                else:
+                    buf.append(c)
+                    i += 1
+            yield ('str', ''.join(buf))
+        else:
+            j = i
+            while j < n and not text[j].isspace() and text[j] not in '()"':
+                j += 1
+            atom = text[i:j]
+            i = j
+            if atom == '.':
+                yield _DOT
+            else:
+                try:
+                    yield ('num', int(atom))
+                except ValueError:
+                    try:
+                        yield ('num', float(atom))
+                    except ValueError:
+                        yield ('sym', atom)
+
+
+def parse_sexpr(text):
+    """S 式を Python のリスト・タプル（ドット対）・アトムにする。"""
+    stack = [[]]
+    for tok in _tokenize(text):
+        if tok == '(':
+            stack.append([])
+        elif tok == ')':
+            if len(stack) < 2:
+                raise SExprError('unbalanced )')
+            lst = stack.pop()
+            if len(lst) == 3 and lst[1] is _DOT:
+                lst = (lst[0], lst[2])
+            stack[-1].append(lst)
+        elif tok is _DOT:
+            stack[-1].append(_DOT)
+        else:
+            kind, val = tok
+            stack[-1].append(val if kind != 'sym' else Symbol(val))
+    if len(stack) != 1 or len(stack[0]) != 1:
+        raise SExprError('incomplete')
+    return stack[0][0]
+
+
+class Symbol(str):
+    pass
+
+
+def to_obj(x):
+    """helper の出力（protobuf を alist にしたもの）を dict / list にする。
+
+    フィールドは (key . value)、repeated は (key v1 v2 ...)、メッセージは
+    フィールドの並び。"""
+    if isinstance(x, tuple):
+        return to_obj(x[1])
+    if isinstance(x, list):
+        if all(isinstance(f, (list, tuple)) and f and isinstance(f[0], Symbol)
+               for f in x):
+            d = {}
+            for f in x:
+                if isinstance(f, tuple):
+                    d[str(f[0])] = to_obj(f[1])
+                else:
+                    d[str(f[0])] = [to_obj(e) for e in f[1:]]
+            return d
+        return [to_obj(e) for e in x]
+    if isinstance(x, Symbol):
+        return str(x)
+    return x
+
+
+def balanced(text):
+    depth, in_str, esc = 0, False, False
+    for c in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif c == '\\':
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+    return depth == 0 and not in_str and text.strip() != ''
+
+
+# ---------------------------------------------------------------------------
+# helper
+
+
+class HelperError(Exception):
+    pass
+
+
+class Helper:
+    def __init__(self, exe, timeout=10.0):
+        self.exe = str(exe)
+        self.timeout = timeout
+        self.profile = tempfile.mkdtemp(prefix='mozc-eval-')
+        self.proc = subprocess.Popen(
+            [self.exe, '--suppress_stderr', '--profile_dir', self.profile],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL)
+        self.seq = 0
+        greeting = to_obj(self._read())
+        self.version = greeting.get('version')
+        self.session = None
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except Exception:
+            self.proc.kill()
+        shutil.rmtree(self.profile, ignore_errors=True)
+
+    def _read(self):
+        timer = threading.Timer(self.timeout, self.proc.kill)
+        timer.start()
+        try:
+            buf = ''
+            while True:
+                line = self.proc.stdout.readline()
+                if not line:
+                    raise HelperError('helper exited')
+                buf += line.decode('utf-8')
+                if balanced(buf):
+                    return parse_sexpr(buf)
+        finally:
+            timer.cancel()
+
+    def call(self, *args):
+        self.seq += 1
+        seq = self.seq
+        line = '(' + ' '.join([str(seq)] + [str(a) for a in args]) + ')\n'
+        self.proc.stdin.write(line.encode('utf-8'))
+        self.proc.stdin.flush()
+        while True:
+            resp = to_obj(self._read())
+            if 'error' in resp:
+                raise HelperError(f"{resp.get('error')}: {resp.get('message')}")
+            if resp.get('emacs-event-id') == seq:
+                return resp
+
+    def create_session(self):
+        self.session = self.call('CreateSession')['emacs-session-id']
+
+    def key(self, *keys):
+        return self.call('SendKey', self.session, *keys).get('output', {})
+
+
+def quote(s):
+    return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def kata_to_hira(s):
+    return ''.join(chr(ord(c) - 0x60) if 'ァ' <= c <= 'ヶ' else c for c in s)
+
+
+def convert(helper, reading):
+    """読みを入れてスペースで変換し、各文節の上位候補と所要時間を返す。
+
+    返り値: (segments, latency_ms)。segments は
+    [{'key': 読み, 'value': 1 位, 'candidates': [{'value', 'segments'}...]}]"""
+    # mozc.el のかな入力と同じく、キーコードに入力文字列を添えて送る。
+    helper.key(97, quote(reading))
+    t0 = time.perf_counter()
+    out = helper.key('space')
+    latency = (time.perf_counter() - t0) * 1000
+    segs = out.get('preedit', {}).get('segment', [])
+    result = [{'key': s.get('key', ''), 'value': s.get('value', ''),
+               'candidates': []} for s in segs]
+    for i in range(len(result)):
+        if i > 0:
+            out = helper.key('right')
+        words = out.get('all-candidate-words', {}).get('candidates', [])
+        result[i]['candidates'] = [
+            {'value': w.get('value', ''),
+             'segments': w.get('num-segments-in-candidate', 1)}
+            for w in words]
+    # 確定せずに取り消す（学習させない）。
+    for _ in range(4):
+        out = helper.key('escape')
+        if 'preedit' not in out:
+            break
+    return result, latency
+
+
+def get_rank(value, segs, i=0):
+    """Mozc の quality_regression_util の GetRank と同じ数え方の順位。
+
+    各文節の候補を前から当てはめ、正解に届くまでに飛ばした候補数の合計。
+    届かなければ -1。"""
+    if i >= len(segs):
+        return 0 if value == '' else -1
+    rank = 0
+    seen = set()
+    for cand in segs[i]['candidates']:
+        v = cand['value']
+        if v in seen:
+            continue
+        seen.add(v)
+        if not v or not value.startswith(v):
+            rank += 1
+            continue
+        rest = get_rank(value[len(v):], segs, i + cand['segments'])
+        if rest == -1:
+            rank += 1
+            continue
+        return rank + rest
+    return -1
+
+
+def edit_distance(a, b):
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1,
+                           prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+# ---------------------------------------------------------------------------
+# データ
+
+COMMANDS = ('Conversion Expected', 'Conversion Not Expected',
+            'Conversion Match', 'Conversion Not Match')
+
+
+def load_data(path):
+    path = Path(path)
+    suite = path.stem
+    items, skipped = [], 0
+    if path.suffix.lower() == '.json':
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if isinstance(data, dict):
+            data = data.get('items') or data.get('data') or list(data.values())
+        for n, d in enumerate(data):
+            expected = d['expected_output']
+            if isinstance(expected, str):
+                expected = [expected]
+            items.append({
+                'id': f"{suite}:{d.get('index', n)}", 'kind': 'sentence',
+                'reading': kata_to_hira(d['input']), 'expected': expected,
+                'has_context': bool(d.get('context_text')),
+            })
+        return items, skipped
+    for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+        if not line.strip() or line.startswith('#'):
+            continue
+        cols = line.split('\t')
+        if len(cols) >= 4 and cols[3].startswith('Conversion'):
+            command, rank = cols[3].strip(), 0
+            m = re.fullmatch(r'Conversion Expected (\d+)', command)
+            if m:
+                command, rank = 'Conversion Expected', int(m.group(1))
+            elif len(cols) >= 5 and cols[4].strip():
+                rank = int(cols[4])
+            if command not in COMMANDS:
+                skipped += 1
+                continue
+            items.append({'id': f'{suite}:{n}', 'kind': 'rule',
+                          'label': cols[0], 'reading': cols[1],
+                          'expected': [cols[2]], 'command': command,
+                          'rank': rank})
+        elif len(cols) >= 4:
+            skipped += 1  # Prediction / Suggestion などは対象外
+        elif len(cols) >= 2:
+            items.append({'id': f'{suite}:{n}', 'kind': 'sentence',
+                          'reading': kata_to_hira(cols[0]),
+                          'expected': cols[1:], 'has_context': False})
+    return items, skipped
+
+
+def judge_rule(item, top, segs):
+    command, value = item['command'], item['expected'][0]
+    if command in ('Conversion Match', 'Conversion Not Match'):
+        ok = re.fullmatch(value, top) is not None
+        return ok if command == 'Conversion Match' else not ok
+    rank = get_rank(value, segs)
+    ok = 0 <= rank <= item['rank']
+    return ok if command == 'Conversion Expected' else not ok
+
+
+def evaluate(helper, item):
+    segs, latency = convert(helper, item['reading'])
+    top = ''.join(s['value'] for s in segs)
+    r = {'id': item['id'], 'kind': item['kind'], 'reading': item['reading'],
+         'expected': item['expected'], 'output': top,
+         'segments': [s['value'] for s in segs], 'latency_ms': latency}
+    if item['kind'] == 'rule':
+        r['command'] = item['command']
+        r['ok'] = judge_rule(item, top, segs)
+    else:
+        r['has_context'] = item.get('has_context', False)
+        r['ok'] = top in item['expected']
+        best = min(item['expected'],
+                   key=lambda e: edit_distance(top, e) / max(len(e), 1))
+        r['edits'] = edit_distance(top, best)
+        r['chars'] = len(best)
+        ranks = [x for x in (get_rank(e, segs) for e in item['expected'])
+                 if x >= 0]
+        r['rank'] = min(ranks) if ranks else -1
+    return r
+
+
+# ---------------------------------------------------------------------------
+# 集計
+
+def summarize(results):
+    lines = []
+    by_suite = {}
+    for r in results:
+        by_suite.setdefault(r['id'].split(':')[0], []).append(r)
+    for suite, rs in by_suite.items():
+        done = [r for r in rs if 'error' not in r]
+        errors = len(rs) - len(done)
+        ok = sum(r['ok'] for r in done)
+        line = f'{suite}: {ok}/{len(done)} 正解 ({ok / max(len(done), 1):.1%})'
+        sent = [r for r in done if r['kind'] == 'sentence']
+        if sent:
+            edits = sum(r['edits'] for r in sent)
+            chars = sum(r['chars'] for r in sent)
+            ranks = [r['rank'] for r in sent]
+            line += (f', 文字誤り率 {edits / max(chars, 1):.2%}'
+                     f', 候補内に正解 {sum(x >= 0 for x in ranks)}/{len(sent)}')
+            ctx = [r for r in sent if r.get('has_context')]
+            if ctx:
+                c_ok = sum(r['ok'] for r in ctx)
+                n_ok = sum(r['ok'] for r in sent) - c_ok
+                line += (f', 文脈あり {c_ok}/{len(ctx)}'
+                         f' / 文脈なし {n_ok}/{len(sent) - len(ctx)}')
+        if errors:
+            line += f', エラー {errors}'
+        lines.append(line)
+    lat = sorted(r['latency_ms'] for r in results if 'latency_ms' in r)
+    if lat:
+        p95 = lat[min(len(lat) - 1, int(len(lat) * 0.95))]
+        lines.append(f'変換時間: 中央値 {statistics.median(lat):.1f}ms'
+                     f' / 95% {p95:.1f}ms / 最大 {lat[-1]:.1f}ms')
+    return '\n'.join(lines)
+
+
+def cmd_run(args):
+    items, skipped = [], 0
+    for path in args.data:
+        its, sk = load_data(path)
+        items += its
+        skipped += sk
+    if args.limit:
+        items = items[:args.limit]
+    exe = Path(args.helper)
+    helper = Helper(exe, timeout=args.timeout)
+    helper.create_session()
+    results = []
+    try:
+        for n, item in enumerate(items, 1):
+            try:
+                results.append(evaluate(helper, item))
+            except HelperError as e:
+                results.append({'id': item['id'], 'kind': item['kind'],
+                                'reading': item['reading'], 'error': str(e),
+                                'ok': False})
+                helper.close()
+                helper = Helper(exe, timeout=args.timeout)
+                helper.create_session()
+            if n % 50 == 0:
+                print(f'{n}/{len(items)}', file=sys.stderr)
+        version = helper.version
+    finally:
+        helper.close()
+    meta = {
+        'helper': str(exe.resolve()),
+        'helper_sha256': hashlib.sha256(exe.read_bytes()).hexdigest(),
+        'helper_version': version,
+        'data': [str(Path(p).resolve()) for p in args.data],
+        'skipped': skipped,
+        'time': time.strftime('%Y-%m-%dT%H:%M:%S'),
+    }
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({'meta': meta, 'results': results},
+                                  ensure_ascii=False, indent=1),
+                       encoding='utf-8')
+    print(summarize(results))
+    if skipped:
+        print(f'対象外（予測・サジェストの項目）: {skipped}')
+    if args.show_errors:
+        for r in results:
+            if not r['ok']:
+                print(f"NG {r['id']}\t{r['reading']}\t{r.get('output', r.get('error'))}"
+                      f"\t期待: {' | '.join(r.get('expected', []))}")
+
+
+def cmd_compare(args):
+    a = json.loads(Path(args.base).read_text(encoding='utf-8'))
+    b = json.loads(Path(args.new).read_text(encoding='utf-8'))
+    print('== 基準:', a['meta']['helper'], a['meta']['helper_version'])
+    print(summarize(a['results']))
+    print('== 比較:', b['meta']['helper'], b['meta']['helper_version'])
+    print(summarize(b['results']))
+    base = {r['id']: r for r in a['results']}
+    better, worse = [], []
+    for r in b['results']:
+        o = base.get(r['id'])
+        if o is None or r.get('output') == o.get('output'):
+            continue
+        if r['ok'] and not o['ok']:
+            better.append((o, r))
+        elif o['ok'] and not r['ok']:
+            worse.append((o, r))
+        elif r['kind'] == 'sentence' and 'edits' in r and 'edits' in o:
+            (better if r['edits'] < o['edits'] else worse).append((o, r))
+    for title, pairs in (('改善', better), ('悪化', worse)):
+        print(f'== {title}: {len(pairs)}')
+        for o, r in pairs:
+            print(f"{r['id']}\t{r['reading']}\n  前: {o.get('output')}\n"
+                  f"  後: {r.get('output')}\n  正解: {' | '.join(r['expected'])}")
+
+
+def main():
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    p = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    sub = p.add_subparsers(dest='cmd', required=True)
+    r = sub.add_parser('run', help='helper で変換して正解と比べる')
+    r.add_argument('--helper', required=True, help='mozc_emacs_helper.exe')
+    r.add_argument('--data', required=True, action='append',
+                   help='評価データ（複数指定可）')
+    r.add_argument('--out', help='結果の JSON')
+    r.add_argument('--limit', type=int, help='先頭から N 件だけ')
+    r.add_argument('--timeout', type=float, default=10.0,
+                   help='helper の応答待ち（秒）')
+    r.add_argument('--show-errors', action='store_true',
+                   help='不正解の項目を表示する')
+    r.set_defaults(func=cmd_run)
+    c = sub.add_parser('compare', help='2 つの結果を比べる')
+    c.add_argument('base')
+    c.add_argument('new')
+    c.set_defaults(func=cmd_compare)
+    args = p.parse_args()
+    args.func(args)
+
+
+if __name__ == '__main__':
+    main()
