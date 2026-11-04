@@ -13,8 +13,8 @@ Windows (x64) の GNU Emacs で Mozc を `C-\` の入力メソッドとして使
 | `mozc-user-dict.el` | Edits the user dictionary from Emacs / Emacs からユーザー辞書を編集する |
 | `mozc-config.el` | Changes Mozc's settings from Emacs / Emacs から Mozc の設定を変える |
 | `LICENSES\` | License texts of what the exe contains / exe に含まれるもののライセンス文 |
-| `README.md` / `README.ja.md` | Setup and usage / 設定と使い方 |
-| `docs\` | Screenshots shown in the READMEs / README の画面写真 |
+| `README.md` / `README.en.md` | Setup and usage (Japanese / English) / 設定と使い方（日本語 / 英語） |
+| `docs\` | Screenshots shown in the READMEs and the list of settings / README の画面写真と設定できる項目の説明 |
 
 Extract it, put the files somewhere, and set up Emacs as in the README ("Use from Emacs" / 「Emacs で使う」).
 
