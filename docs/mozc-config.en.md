@@ -20,6 +20,18 @@ and set from init.el with `mozc-config-set`.
   uses the new settings)
 - `(mozc-config-get 'space-character-form)` returns the current value
 
+### Changing an item both in init.el and with `M-x mozc-config`
+
+Both write the same settings file (`config1.db`), so whichever writes last wins.
+
+1. When Emacs starts, `mozc-config-set` in init.el writes its value
+2. Changing it with `M-x mozc-config` rewrites the file at once, and the new value takes effect
+3. The next time Emacs starts, `mozc-config-set` in init.el runs again and puts the init.el value back
+
+So changing an item set in init.el with `M-x mozc-config` lasts only until you quit that Emacs. Leave
+out of init.el the items you want to decide in `M-x mozc-config`, or change the value in init.el to
+keep it. Items not in init.el keep what you set with `M-x mozc-config`.
+
 ## Values
 
 The values are the Japanese texts shown in the list (and in Mozc's settings dialog). The tables

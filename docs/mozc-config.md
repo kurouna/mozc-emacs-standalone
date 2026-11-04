@@ -19,6 +19,18 @@ init.el からは `mozc-config-set` で設定できます。
   （起動時はまだ helper が動いていないので、最初に Mozc を ON にしたときから新しい設定になります）
 - 今の値は `(mozc-config-get 'space-character-form)` で調べられます
 
+### init.el と `M-x mozc-config` の両方で変えたとき
+
+どちらも同じ設定ファイル（`config1.db`）に書くので、後から書いた方が有効になります。
+
+1. Emacs の起動時に、init.el の `mozc-config-set` がその値を書く
+2. `M-x mozc-config` で変えると、その場で設定ファイルが書き換わり、新しい値で動く
+3. 次に Emacs を起動すると、init.el の `mozc-config-set` がまた実行され、init.el の値に戻る
+
+つまり、init.el に書いた項目を `M-x mozc-config` で変えても、その Emacs を終えるまでの一時的な変更です。
+`M-x mozc-config` で決めたい項目は init.el に書かず、変更を残したいなら init.el の値の方を書き換えてください。
+init.el に書いていない項目は、`M-x mozc-config` で変えればそのまま残ります。
+
 ## 値の書き方
 
 | 種類 | 書ける値 | 例 |

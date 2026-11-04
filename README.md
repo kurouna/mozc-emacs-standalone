@@ -216,11 +216,16 @@ Mozc 公式の設定ダイアログも Qt の GUI アプリで、このキット
   数でも可）
 
   ```elisp
-  (with-eval-after-load 'mozc-config
-    (mozc-config-set 'punctuation-method "，．")
-    (mozc-config-set 'use-emoji-conversion nil)
-    (mozc-config-set 'suggestions-size 5))
+  (require 'mozc-config)
+  (mozc-config-set 'punctuation-method "，．")
+  (mozc-config-set 'use-emoji-conversion nil)
+  (mozc-config-set 'suggestions-size 5)
   ```
+
+- init.el の `mozc-config-set` は Emacs を起動するたびに実行され、設定ファイルをその値に戻します。
+  そのため、init.el に書いた項目を `M-x mozc-config` で変えても、その Emacs を終えるまでの一時的な
+  変更になります（次の起動で init.el の値に戻ります）。`M-x mozc-config` で決めたい項目は init.el に
+  書かないでください。init.el に書いていない項目は、`M-x mozc-config` で変えればそのまま残ります
 
 - キーマップ（キー設定の「編集...」）、ローマ字テーブル、半角・全角の文字ごとの設定は、表を
   編集する画面が無いので扱いません。設定ファイルにあればそのまま残します。用例辞書、

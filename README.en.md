@@ -216,11 +216,16 @@ in `--profile_dir`) in pure Emacs Lisp, then restarts the helper so that it relo
   number)
 
   ```elisp
-  (with-eval-after-load 'mozc-config
-    (mozc-config-set 'punctuation-method "，．")
-    (mozc-config-set 'use-emoji-conversion nil)
-    (mozc-config-set 'suggestions-size 5))
+  (require 'mozc-config)
+  (mozc-config-set 'punctuation-method "，．")
+  (mozc-config-set 'use-emoji-conversion nil)
+  (mozc-config-set 'suggestions-size 5)
   ```
+
+- `mozc-config-set` in init.el runs every time Emacs starts and puts the settings file back to its
+  values. So changing an item set in init.el with `M-x mozc-config` lasts only until you quit that
+  Emacs (the next start restores the init.el value). Leave out of init.el the items you want to
+  decide in `M-x mozc-config`; items not in init.el keep what you set there
 
 - Custom keymaps, the romaji table and per-character-group width rules need table editors and
   are not handled; they are kept as they are in the file. The usage dictionary, the input mode
