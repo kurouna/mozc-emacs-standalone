@@ -506,23 +506,30 @@ Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の�
   (add-hook 'tabulated-list-revert-hook #'mozc-user-dict--refresh nil t)
   (tabulated-list-init-header))
 
+(defun mozc-user-dict--fit (s limit)
+  "文字列 S を表示幅 LIMIT までに切る。超えるときは末尾を … にする。"
+  (if (> (string-width s) limit) (truncate-string-to-width s limit nil nil t) s))
+
 (defun mozc-user-dict--refresh ()
+  ;; よみ・単語・辞書名は長くなりすぎないよう、表示幅の上限で先に切っておく。tabulated-list に
+  ;; 切らせると、切った文字列が列の幅をちょうど埋めて、次の列がそろわない（下を参照）
   (setq tabulated-list-entries
         (mapcar (lambda (e)
                   (pcase-let ((`(,dict ,reading ,word ,pos ,comment) e))
-                    (list e (vector reading word (mozc-user-dict-pos-name pos) dict comment))))
+                    (list e (vector (mozc-user-dict--fit reading 40) (mozc-user-dict--fit word 40)
+                                    (mozc-user-dict-pos-name pos) (mozc-user-dict--fit dict 20)
+                                    comment))))
                 (mozc-user-dict--entries (mozc-user-dict--read))))
-  ;; 列の幅は、全角を 2 桁と数えた表示幅で、いちばん長いものに合わせる（固定の幅だと、
-  ;; 長い品詞名や単語の行だけ後ろの列がずれる）。よみ・単語・辞書名は長くなりすぎないよう上限を置く
-  (let ((width (lambda (col head strings limit)
-                 (min limit (apply #'max (string-width head)
-                                   (mapcar (lambda (s) (string-width (if (vectorp s) (aref s col) s)))
-                                           strings))))))
+  ;; 列の幅は、全角を 2 桁と数えた表示幅でいちばん長いものより 1 桁広くする。文字列が幅を
+  ;; ちょうど埋めると tabulated-list は次の列を :align-to でそろえず、全角が 2 桁より狭く
+  ;; 描かれるフォントではその行だけ後ろの列がずれる
+  (let ((width (lambda (head strings) (1+ (apply #'max (mapcar #'string-width (cons head strings))))))
+        (cells (lambda (col) (mapcar (lambda (entry) (aref (cadr entry) col)) tabulated-list-entries))))
     (setq tabulated-list-format
-          (vector (list "よみ" (funcall width 0 "よみ" (mapcar #'cadr tabulated-list-entries) 40) t)
-                  (list "単語" (funcall width 1 "単語" (mapcar #'cadr tabulated-list-entries) 40) t)
-                  (list "品詞" (funcall width nil "品詞" (append mozc-user-dict-pos-names nil) 100) t)
-                  (list "辞書" (funcall width 3 "辞書" (mapcar #'cadr tabulated-list-entries) 20) t)
+          (vector (list "よみ" (funcall width "よみ" (funcall cells 0)) t)
+                  (list "単語" (funcall width "単語" (funcall cells 1)) t)
+                  (list "品詞" (funcall width "品詞" (append mozc-user-dict-pos-names nil)) t)
+                  (list "辞書" (funcall width "辞書" (funcall cells 3)) t)
                   '("コメント" 0 nil)))
     (tabulated-list-init-header)))
 

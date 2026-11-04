@@ -263,8 +263,10 @@ VALUE は値そのもの（真偽値・数・選択肢の番号）か、一覧�
 (define-derived-mode mozc-config-mode tabulated-list-mode "Mozc-Config"
   "Mozc の設定の一覧。
 \\<mozc-config-mode-map>\\[mozc-config-edit] 変更 / \\[mozc-config-reset] 既定に戻す / \\[mozc-config-reset-all] すべて既定に戻す / g 再読込 / q 閉じる"
-  ;; 列の幅は、全角を 2 桁と数えた表示幅で、いちばん長いものに合わせる
-  (let ((width (lambda (head strings) (apply #'max (mapcar #'string-width (cons head strings))))))
+  ;; 列の幅は、全角を 2 桁と数えた表示幅でいちばん長いものより 1 桁広くする。文字列が幅を
+  ;; ちょうど埋めると tabulated-list は次の列を :align-to でそろえず、全角が 2 桁より狭く
+  ;; 描かれるフォントではその行だけ後ろの列がずれる
+  (let ((width (lambda (head strings) (1+ (apply #'max (mapcar #'string-width (cons head strings)))))))
     (setq tabulated-list-format
           (vector (list "分類" (funcall width "分類" (mapcar (lambda (it) (plist-get (cdr it) :group))
                                                              mozc-config-items))
