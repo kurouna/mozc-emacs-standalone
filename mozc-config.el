@@ -191,6 +191,15 @@ protobuf と同じく最後に現れたものを使い、負の int32 / enum は
              (cdr (assq value (plist-get plist :display)))
              (format "%s" value))))))
 
+(defun mozc-config--value-labels (item)
+  "ITEM の値の表示として出うるものの並び（一覧の列の幅を決めるのに使う）。"
+  (let ((plist (cdr item)))
+    (pcase (plist-get plist :type)
+      ('bool (list (mozc-config--label item t) (mozc-config--label item nil)))
+      ('int (list (mozc-config--label item (plist-get plist :max))))
+      ('flags (list (mozc-config--label item (apply #'logior (mapcar #'car (plist-get plist :choices))))))
+      (_ (mapcar #'cdr (append (plist-get plist :choices) (plist-get plist :display)))))))
+
 (defun mozc-config--parse (item value)
   "`mozc-config-set' に渡された VALUE を ITEM の値にする。表示の文字列も受ける。"
   (let* ((plist (cdr item))
@@ -254,8 +263,18 @@ VALUE は値そのもの（真偽値・数・選択肢の番号）か、一覧�
 (define-derived-mode mozc-config-mode tabulated-list-mode "Mozc-Config"
   "Mozc の設定の一覧。
 \\<mozc-config-mode-map>\\[mozc-config-edit] 変更 / \\[mozc-config-reset] 既定に戻す / \\[mozc-config-reset-all] すべて既定に戻す / g 再読込 / q 閉じる"
-  (setq tabulated-list-format [("分類" 12 nil) ("項目" 46 nil) ("設定" 24 nil)
-                               ("既定値" 0 nil)])
+  ;; 列の幅は、全角を 2 桁と数えた表示幅で、いちばん長いものに合わせる
+  (let ((width (lambda (head strings) (apply #'max (mapcar #'string-width (cons head strings))))))
+    (setq tabulated-list-format
+          (vector (list "分類" (funcall width "分類" (mapcar (lambda (it) (plist-get (cdr it) :group))
+                                                             mozc-config-items))
+                        nil)
+                  (list "項目" (funcall width "項目" (mapcar (lambda (it) (plist-get (cdr it) :label))
+                                                             mozc-config-items))
+                        nil)
+                  (list "設定" (funcall width "設定" (mapcan #'mozc-config--value-labels mozc-config-items))
+                        nil)
+                  '("既定値" 0 nil))))
   (setq tabulated-list-sort-key nil)
   (setq mozc-user-dict--legend
         "RET 変更 / d 既定に戻す / D すべて既定に戻す / g 再読込 / q 閉じる")
