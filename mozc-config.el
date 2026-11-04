@@ -350,10 +350,13 @@ VALUE は値そのもの（真偽値・数・選択肢の番号）か、一覧�
                       (format "%s（カンマ区切り、空なら無し）: " label)
                       (mapcar #'cdr (plist-get plist :choices)) nil t
                       (string-join (mozc-config--flag-names item value) ","))))
-       (_ (let ((names (mapcar #'cdr (plist-get plist :choices))))
-            (car (rassoc (completing-read (format "%s: " label) names nil t nil nil
-                                          (mozc-config--label item value))
-                         (plist-get plist :choices)))))))))
+       (_ (let* ((choices (plist-get plist :choices))
+                 (name (completing-read (format "%s: " label) (mapcar #'cdr choices) nil t nil nil
+                                        (mozc-config--label item value))))
+            ;; 空のまま RET を押すと既定の入力（今の値の表示）が返る。今の値が選択肢に無い
+            ;; （キー設定がカスタムのとき）なら、何も変えない
+            (or (car (rassoc name choices))
+                (user-error "%s は変えていません" label))))))))
 
 (defun mozc-config-reset ()
   "一覧で、カーソル行の設定を既定値に戻す。"

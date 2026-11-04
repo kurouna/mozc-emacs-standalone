@@ -511,7 +511,20 @@ Mozc の品詞に読み替え、Mozc に当たる品詞が無い語（文語の�
         (mapcar (lambda (e)
                   (pcase-let ((`(,dict ,reading ,word ,pos ,comment) e))
                     (list e (vector reading word (mozc-user-dict-pos-name pos) dict comment))))
-                (mozc-user-dict--entries (mozc-user-dict--read)))))
+                (mozc-user-dict--entries (mozc-user-dict--read))))
+  ;; 列の幅は、全角を 2 桁と数えた表示幅で、いちばん長いものに合わせる（固定の幅だと、
+  ;; 長い品詞名や単語の行だけ後ろの列がずれる）。よみ・単語・辞書名は長くなりすぎないよう上限を置く
+  (let ((width (lambda (col head strings limit)
+                 (min limit (apply #'max (string-width head)
+                                   (mapcar (lambda (s) (string-width (if (vectorp s) (aref s col) s)))
+                                           strings))))))
+    (setq tabulated-list-format
+          (vector (list "よみ" (funcall width 0 "よみ" (mapcar #'cadr tabulated-list-entries) 40) t)
+                  (list "単語" (funcall width 1 "単語" (mapcar #'cadr tabulated-list-entries) 40) t)
+                  (list "品詞" (funcall width nil "品詞" (append mozc-user-dict-pos-names nil) 100) t)
+                  (list "辞書" (funcall width 3 "辞書" (mapcar #'cadr tabulated-list-entries) 20) t)
+                  '("コメント" 0 nil)))
+    (tabulated-list-init-header)))
 
 ;;;###autoload
 (defun mozc-user-dict-list ()
